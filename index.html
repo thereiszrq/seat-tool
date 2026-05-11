@@ -541,7 +541,7 @@ function toggleSelectMode() {
   const hint = document.getElementById('selectModeHint');
   if (selectMode) {
     btn.textContent = '✅ 选择中'; btn.style.background='var(--warning)'; btn.style.color='#000'; btn.style.border='none';
-    hint.textContent = '拖拽圈选 | 点击单选';
+    hint.textContent = '拖拽圈选(再圈取消) | 点击单选';
     // Disable scroll on grid while in select mode
     const grid = document.getElementById('gridEditor');
     if (grid) grid.style.touchAction = 'none';
@@ -557,9 +557,9 @@ function toggleSelectMode() {
 // Pointer-event based drag for circle-select
 let ptrDown = false, ptrStart = null, ptrEnd = null, ptrMoved = false;
 let ptrIsTouch = false;
+let ptrHandledBySelect = false; // Prevents click conflict in select mode
 
 function getCellFromEvent(e) {
-  // For touch, use coords; for mouse, use target
   let x, y;
   if (e.touches && e.touches.length > 0) { x = e.touches[0].clientX; y = e.touches[0].clientY; }
   else if (e.changedTouches && e.changedTouches.length > 0) { x = e.changedTouches[0].clientX; y = e.changedTouches[0].clientY; }
@@ -571,12 +571,12 @@ function getCellFromEvent(e) {
 }
 
 function handlePtrDown(r, c, e) {
-  // Desktop: always allow drag. Touch: only in select mode.
   ptrIsTouch = (e.pointerType === 'touch');
-  if (ptrIsTouch && !selectMode) return;
+  if (ptrIsTouch && !selectMode) return; // Touch only works in select mode
   e.preventDefault();
   ptrDown = true; ptrMoved = false;
   ptrStart = {r, c}; ptrEnd = {r, c};
+  ptrHandledBySelect = false;
 }
 
 function handlePtrMove(e) {
@@ -591,11 +591,7 @@ function handlePtrMove(e) {
   const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
   document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
     const rr = parseInt(td.dataset.r), cc = parseInt(td.dataset.c);
-    if (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) {
-      td.style.background = '#dbeafe';
-    } else {
-      td.style.background = '';
-    }
+    td.style.background = (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) ? '#dbeafe' : '';
   });
 }
 
@@ -604,30 +600,35 @@ function handlePtrUp(e) {
   ptrDown = false;
 
   if (!ptrMoved) {
-    // It was a click, not a drag
+    // It was a tap, not a drag
     if (ptrIsTouch && selectMode && ptrStart) {
-      // Touch tap in select mode = toggle cell
+      // Toggle single cell in select mode
       const key = ptrStart.r + ',' + ptrStart.c;
       if (multiSelected.has(key)) multiSelected.delete(key);
       else multiSelected.add(key);
       renderGridEditor();
+      ptrHandledBySelect = true; // Block onGridClick
     }
-    // For mouse clicks, onGridClick handles it
     ptrStart = ptrEnd = null; ptrIsTouch = false;
     return;
   }
 
-  // Drag ended — circle-select
+  // Drag ended — toggle cells in area (selected→unselect, unselected→select)
   const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
   const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
   const newSel = new Set([...multiSelected]);
-  for (let rr = r1; rr <= r2; rr++)
-    for (let cc = c1; cc <= c2; cc++)
-      newSel.add(rr + ',' + cc);
+  for (let rr = r1; rr <= r2; rr++) {
+    for (let cc = c1; cc <= c2; cc++) {
+      const key = rr + ',' + cc;
+      if (multiSelected.has(key)) newSel.delete(key);
+      else newSel.add(key);
+    }
+  }
   multiSelected = newSel;
   renderGridEditor();
   if (r1 !== r2 || c1 !== c2) document.getElementById('zoneName').value = '';
   ptrStart = ptrEnd = null; ptrIsTouch = false;
+  ptrHandledBySelect = selectMode; // Block onGridClick if in select mode
 }
 
 // Attach pointer events to grid container
@@ -648,7 +649,9 @@ function bindGridEvents() {
 
 // Click handler for desktop (not touch/select-mode)
 function onGridClick(r, c, e) {
-  if (ptrIsTouch && selectMode) return; // Handled by pointer events
+  // Skip if pointer events already handled this in select mode (avoids double-toggle)
+  if (ptrHandledBySelect) { ptrHandledBySelect = false; return; }
+  if (selectMode) return; // Select mode clicks are handled by pointer events
   if (ptrMoved) { ptrMoved = false; return; }
 
   if (e.ctrlKey || e.metaKey) {
