@@ -251,12 +251,9 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   </div>
 
   <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">
-    💡 <b>Ctrl+点击</b>多选，<b>Shift+点击</b>范围选，<b>拖拽</b>圈选区域
-    <span class="mobile-hint"> | 📱 手机：点下方按钮开启<b>选择模式</b></span>
-  </div>
-  <div class="mobile-hint" style="margin-bottom:6px">
-    <button class="btn btn-sm" id="mobileSelectBtn" onclick="toggleSelectMode()" style="min-height:36px">🖐 开启选择模式</button>
-    <span id="selectModeHint" style="font-size:11px;color:var(--gray-500);margin-left:8px"></span>
+    💡 <b>拖拽</b>圈选 | <b>Ctrl+点击</b>多选 | <b>Shift+点击</b>范围选
+    <button class="btn btn-xs btn-outline" id="mobileSelectBtn" onclick="toggleSelectMode()" style="margin-left:8px">🖐 选择模式</button>
+    <span id="selectModeHint" style="font-size:11px;color:var(--warning);margin-left:4px;font-weight:500"></span>
   </div>
 
   <div class="grid-editor" id="gridEditor">
@@ -538,68 +535,68 @@ function renderGridEditor() {
   renderZoneList();
 }
 
-// Select mode (for mobile)
+// Select mode toggle (works on all devices)
 let selectMode = false;
 function toggleSelectMode() {
   selectMode = !selectMode;
   const btn = document.getElementById('mobileSelectBtn');
   const hint = document.getElementById('selectModeHint');
   if (selectMode) {
-    btn.textContent = '✅ 选择模式已开启';
-    btn.style.background = 'var(--warning)'; btn.style.color = 'white'; btn.style.border = 'none';
-    hint.textContent = '点击座位多选，再点取消选中';
+    btn.textContent = '✅ 选择中';
+    btn.style.background = 'var(--warning)'; btn.style.color = '#000'; btn.style.border = 'none';
+    hint.textContent = '点击座位多选，工具栏批量操作';
   } else {
-    btn.textContent = '🖐 开启选择模式';
+    btn.textContent = '🖐 选择模式';
     btn.style.background = ''; btn.style.color = ''; btn.style.border = '';
     hint.textContent = '';
     multiSelected.clear(); renderGridEditor();
   }
 }
 
-// Grid interaction
+// Grid interaction — works for both desktop drag & click
 let isDragging = false, dragStart = null, dragEnd = null;
 let hasMoved = false;
+let ctrlOnDrag = false;
 
 function onGridMouseDown(r, c, e) {
   e.preventDefault();
   isDragging = true;
   hasMoved = false;
   dragStart = {r, c}; dragEnd = {r, c};
+  ctrlOnDrag = e.ctrlKey || e.metaKey;
 }
 
 function onGridMouseOver(r, c, e) {
   if (!isDragging) return;
   hasMoved = true;
   dragEnd = {r, c};
-  if (e.ctrlKey || e.metaKey) {
-    highlightDragSelection();
-  }
+  highlightDragSelection();
 }
 
-document.addEventListener('mouseup', (e) => {
+document.addEventListener('mouseup', () => {
   if (!isDragging) return;
   isDragging = false;
 
+  if (!hasMoved) { dragStart = dragEnd = null; return; }
+
   const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
   const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
-  const isSingle = (r1 === r2 && c1 === c2);
 
-  if (!isSingle && (e.ctrlKey || e.metaKey)) {
-    const newSel = new Set([...multiSelected]);
-    for (let rr = r1; rr <= r2; rr++)
-      for (let cc = c1; cc <= c2; cc++)
-        newSel.add(rr + ',' + cc);
-    multiSelected = newSel;
-    renderGridEditor();
-    document.getElementById('zoneName').value = '';
-  }
+  // Drag = circle-select (Ctrl keeps existing, no-Ctrl replaces)
+  const newSel = new Set(ctrlOnDrag ? [...multiSelected] : []);
+  for (let rr = r1; rr <= r2; rr++)
+    for (let cc = c1; cc <= c2; cc++)
+      newSel.add(rr + ',' + cc);
+  multiSelected = newSel;
+  renderGridEditor();
+  document.getElementById('zoneName').value = '';
   dragStart = dragEnd = null;
 });
 
 function onGridClick(r, c, e) {
   if (hasMoved) { hasMoved = false; return; }
 
-  // In select mode (mobile), toggle multi-select
+  // Select mode: clicks = multi-select toggle
   if (selectMode) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
@@ -607,13 +604,14 @@ function onGridClick(r, c, e) {
     renderGridEditor(); return;
   }
 
-  // Desktop modifiers
+  // Ctrl+click = multi-select toggle
   if (e.ctrlKey || e.metaKey) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
     else multiSelected.add(key);
     renderGridEditor(); return;
   }
+  // Shift+click = range select
   if (e.shiftKey && multiSelected.size > 0) {
     const last = [...multiSelected].pop().split(',').map(Number);
     const r1 = Math.min(last[0], r), r2 = Math.max(last[0], r);
@@ -623,6 +621,7 @@ function onGridClick(r, c, e) {
         multiSelected.add(rr + ',' + cc);
     renderGridEditor(); return;
   }
+  // Plain click = toggle seat
   toggleSeat(r, c);
 }
 
