@@ -251,7 +251,12 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   </div>
 
   <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">
-    💡 <b>Ctrl+点击</b>多选，<b>Shift+点击</b>范围选，<b>拖拽</b>圈选 | 📱 手机：<b>长按</b>圈选，<b>短点击</b>切换座位
+    💡 <b>Ctrl+点击</b>多选，<b>Shift+点击</b>范围选，<b>拖拽</b>圈选区域
+    <span class="mobile-hint"> | 📱 手机：点下方按钮开启<b>选择模式</b></span>
+  </div>
+  <div class="mobile-hint" style="margin-bottom:6px">
+    <button class="btn btn-sm" id="mobileSelectBtn" onclick="toggleSelectMode()" style="min-height:36px">🖐 开启选择模式</button>
+    <span id="selectModeHint" style="font-size:11px;color:var(--gray-500);margin-left:8px"></span>
   </div>
 
   <div class="grid-editor" id="gridEditor">
@@ -523,7 +528,6 @@ function renderGridEditor() {
       const label = seat ? (seat.label || (isSeat ? '' : '')) : '';
       html += `<td class="${cls.join(' ')}" data-r="${r}" data-c="${c}"
         onmousedown="onGridMouseDown(${r},${c},event)"
-        ontouchstart="onGridTouchStart(${r},${c},event)"
         onmouseover="onGridMouseOver(${r},${c},event)"
         onclick="onGridClick(${r},${c},event)">${zoneTag}${groupTag}<span class="seat-label">${label}</span></td>`;
     }
@@ -534,99 +538,52 @@ function renderGridEditor() {
   renderZoneList();
 }
 
-// Grid interaction — unified desktop & mobile with proper touch support
-let isDragging = false, dragStart = null, dragEnd = null;
-let longPressActive = false;
-let longPressTimer = null;
-let hasMoved = false;
-let touchActive = false; // true when handling a touch event
-
-function findCellFromTouch(touch) {
-  const el = document.elementFromPoint(touch.clientX, touch.clientY);
-  if (!el) return null;
-  const td = el.closest('td[data-r][data-c]');
-  if (!td) return null;
-  return { r: parseInt(td.dataset.r), c: parseInt(td.dataset.c) };
+// Select mode (for mobile)
+let selectMode = false;
+function toggleSelectMode() {
+  selectMode = !selectMode;
+  const btn = document.getElementById('mobileSelectBtn');
+  const hint = document.getElementById('selectModeHint');
+  if (selectMode) {
+    btn.textContent = '✅ 选择模式已开启';
+    btn.style.background = 'var(--warning)'; btn.style.color = 'white'; btn.style.border = 'none';
+    hint.textContent = '点击座位多选，再点取消选中';
+  } else {
+    btn.textContent = '🖐 开启选择模式';
+    btn.style.background = ''; btn.style.color = ''; btn.style.border = '';
+    hint.textContent = '';
+    multiSelected.clear(); renderGridEditor();
+  }
 }
 
-function startDrag(r, c, e) {
+// Grid interaction
+let isDragging = false, dragStart = null, dragEnd = null;
+let hasMoved = false;
+
+function onGridMouseDown(r, c, e) {
   e.preventDefault();
   isDragging = true;
   hasMoved = false;
   dragStart = {r, c}; dragEnd = {r, c};
-  longPressActive = false;
-  touchActive = (e.type === 'touchstart');
-
-  if (isMobile || touchActive) {
-    longPressTimer = setTimeout(() => {
-      longPressActive = true;
-      multiSelected.add(r + ',' + c);
-      renderGridEditor();
-      updateBatchToolbar();
-    }, 500);
-  }
 }
 
-function onGridMouseDown(r, c, e) { startDrag(r, c, e); }
-
-function onGridTouchStart(r, c, e) {
-  e.preventDefault();
-  startDrag(r, c, e);
-}
-
-function updateDrag(r, c, e) {
+function onGridMouseOver(r, c, e) {
   if (!isDragging) return;
   hasMoved = true;
-  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   dragEnd = {r, c};
-  if (isMobile || touchActive || longPressActive || e.ctrlKey || e.metaKey) {
+  if (e.ctrlKey || e.metaKey) {
     highlightDragSelection();
   }
 }
 
-function onGridMouseOver(r, c, e) {
-  if (touchActive) return; // let touchmove handle it
-  updateDrag(r, c, e);
-}
-
-// Global touchmove handler
-document.addEventListener('touchmove', function(e) {
-  if (!isDragging || !touchActive) return;
-  e.preventDefault();
-  const cell = findCellFromTouch(e.touches[0]);
-  if (cell) {
-    updateDrag(cell.r, cell.c, e);
-  }
-}, { passive: false });
-
-function endDrag(e) {
+document.addEventListener('mouseup', (e) => {
   if (!isDragging) return;
   isDragging = false;
-  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
   const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
   const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
   const isSingle = (r1 === r2 && c1 === c2);
 
-  if (isMobile || touchActive) {
-    if (longPressActive || hasMoved) {
-      const newSel = new Set(longPressActive ? [...multiSelected] : []);
-      for (let rr = r1; rr <= r2; rr++)
-        for (let cc = c1; cc <= c2; cc++)
-          newSel.add(rr + ',' + cc);
-      multiSelected = newSel;
-      renderGridEditor();
-      if (!isSingle) document.getElementById('zoneName').value = '';
-    } else {
-      toggleSeat(r1, c1);
-    }
-    longPressActive = false;
-    touchActive = false;
-    dragStart = dragEnd = null;
-    return;
-  }
-
-  // Desktop
   if (!isSingle && (e.ctrlKey || e.metaKey)) {
     const newSel = new Set([...multiSelected]);
     for (let rr = r1; rr <= r2; rr++)
@@ -637,15 +594,20 @@ function endDrag(e) {
     document.getElementById('zoneName').value = '';
   }
   dragStart = dragEnd = null;
-}
-
-document.addEventListener('mouseup', endDrag);
-document.addEventListener('touchend', endDrag);
+});
 
 function onGridClick(r, c, e) {
-  if (isMobile || touchActive) return;
-  if (hasMoved) return;
+  if (hasMoved) { hasMoved = false; return; }
 
+  // In select mode (mobile), toggle multi-select
+  if (selectMode) {
+    const key = r + ',' + c;
+    if (multiSelected.has(key)) multiSelected.delete(key);
+    else multiSelected.add(key);
+    renderGridEditor(); return;
+  }
+
+  // Desktop modifiers
   if (e.ctrlKey || e.metaKey) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
