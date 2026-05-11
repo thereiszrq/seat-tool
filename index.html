@@ -251,9 +251,7 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   </div>
 
   <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">
-    💡 <b>Ctrl+点击</b>多选，<b>Shift+点击</b>范围选，<b>拖拽</b>圈选区域
-    <span class="mobile-hint">📱 手机：<b>长按</b>座位进入多选模式，再点击选择</span>
-    <button class="btn btn-xs btn-outline mobile-hint" id="mobileMultiToggle" onclick="toggleMobileMultiSelect()" style="margin-left:8px">开启多选</button>
+    💡 <b>Ctrl+点击</b>多选，<b>Shift+点击</b>范围选，<b>拖拽</b>圈选 | 📱 手机：<b>长按</b>圈选，<b>短点击</b>切换座位
   </div>
 
   <div class="grid-editor" id="gridEditor">
@@ -387,8 +385,6 @@ if (!state.selectedInPool) state.selectedInPool = [];
 
 // ==================== MOBILE DETECTION ====================
 const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || (window.innerWidth < 768);
-let mobileMultiSelectMode = false; // Toggle for mobile multi-select
-
 // ==================== TOAST ====================
 function toast(msg, type='') {
   const t = document.getElementById('toast');
@@ -537,98 +533,85 @@ function renderGridEditor() {
   renderZoneList();
 }
 
-// Mobile multi-select toggle
-function toggleMobileMultiSelect() {
-  mobileMultiSelectMode = !mobileMultiSelectMode;
-  const btn = document.getElementById('mobileMultiToggle');
-  if (mobileMultiSelectMode) {
-    btn.textContent = '关闭多选';
-    btn.style.background = 'var(--warning)';
-    btn.style.color = 'white';
-    btn.style.borderColor = 'var(--warning)';
-    toast('多选模式已开启，点击座位即可多选');
-  } else {
-    btn.textContent = '开启多选';
-    btn.style.background = '';
-    btn.style.color = '';
-    btn.style.borderColor = '';
-    multiSelected.clear();
-    renderGridEditor();
-  }
-}
-
-// Long-press detection for mobile
-let longPressTimer = null;
-let longPressPos = null;
-
-// Grid interaction
+// Grid interaction — unified desktop & mobile
 let isDragging = false, dragStart = null, dragEnd = null;
-let lastClickWasCtrl = false;
+let longPressActive = false;
+let longPressTimer = null;
+let hasMoved = false;
 
 function onGridMouseDown(r, c, e) {
   e.preventDefault();
   isDragging = true;
+  hasMoved = false;
   dragStart = {r, c}; dragEnd = {r, c};
-  lastClickWasCtrl = e.ctrlKey || e.metaKey || mobileMultiSelectMode;
+  longPressActive = false;
 
-  // Long-press detection for mobile
   if (isMobile) {
-    longPressPos = {r, c};
     longPressTimer = setTimeout(() => {
-      if (!mobileMultiSelectMode) {
-        toggleMobileMultiSelect();
-      }
-      // Add this cell to selection
+      longPressActive = true;
       multiSelected.add(r + ',' + c);
       renderGridEditor();
       updateBatchToolbar();
-      longPressPos = null;
-    }, 600);
+    }, 500);
   }
 }
 
 function onGridMouseOver(r, c, e) {
   if (!isDragging) return;
-  // Cancel long-press if finger moves
-  if (longPressTimer && longPressPos && (longPressPos.r !== r || longPressPos.c !== c)) {
-    clearTimeout(longPressTimer);
-    longPressTimer = null;
-    longPressPos = null;
-  }
+  hasMoved = true;
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   dragEnd = {r, c};
-  highlightDragSelection();
+  if (isMobile || longPressActive) {
+    highlightDragSelection();
+  } else if (e.ctrlKey || e.metaKey) {
+    highlightDragSelection();
+  }
 }
 
 document.addEventListener('mouseup', () => {
-  if (isDragging) {
-    isDragging = false;
-    if (dragStart) {
-      const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
-      const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
-      if (r1 === r2 && c1 === c2 && !lastClickWasCtrl) {
-        // Single click without ctrl - handled in onclick
-      } else {
-        // Drag selection
-        const newSel = new Set(lastClickWasCtrl ? [...multiSelected] : []);
-        for (let rr = r1; rr <= r2; rr++)
-          for (let cc = c1; cc <= c2; cc++)
-            newSel.add(rr + ',' + cc);
-        multiSelected = newSel;
-        renderGridEditor();
-        if (r1 !== r2 || c1 !== c2) {
-          document.getElementById('zoneName').value = '';
-        }
-      }
+  if (!isDragging) return;
+  isDragging = false;
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+
+  const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
+  const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
+  const isSingle = (r1 === r2 && c1 === c2);
+
+  if (isMobile) {
+    if (longPressActive || hasMoved) {
+      const newSel = new Set(longPressActive ? [...multiSelected] : []);
+      for (let rr = r1; rr <= r2; rr++)
+        for (let cc = c1; cc <= c2; cc++)
+          newSel.add(rr + ',' + cc);
+      multiSelected = newSel;
+      renderGridEditor();
+      if (!isSingle) document.getElementById('zoneName').value = '';
+    } else {
+      toggleSeat(r1, c1);
     }
+    longPressActive = false;
     dragStart = dragEnd = null;
+    return;
   }
+
+  // Desktop
+  if (!isSingle && (e.ctrlKey || e.metaKey)) {
+    const newSel = new Set([...multiSelected]);
+    for (let rr = r1; rr <= r2; rr++)
+      for (let cc = c1; cc <= c2; cc++)
+        newSel.add(rr + ',' + cc);
+    multiSelected = newSel;
+    renderGridEditor();
+    document.getElementById('zoneName').value = '';
+  }
+  dragStart = dragEnd = null;
 });
 
 function onGridClick(r, c, e) {
-  // Cancel long press
-  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; longPressPos = null; }
+  if (isMobile) return;
+  if (hasMoved) return;
 
-  if (e.ctrlKey || e.metaKey || mobileMultiSelectMode) {
+  if (e.ctrlKey || e.metaKey) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
     else multiSelected.add(key);
@@ -643,10 +626,7 @@ function onGridClick(r, c, e) {
         multiSelected.add(rr + ',' + cc);
     renderGridEditor(); return;
   }
-  // Plain single click - toggle seat
-  if (dragStart && dragStart.r === dragEnd.r && dragStart.c === dragEnd.c && !isDragging) {
-    toggleSeat(r, c);
-  }
+  toggleSeat(r, c);
 }
 
 function highlightDragSelection() {
