@@ -523,6 +523,7 @@ function renderGridEditor() {
       const label = seat ? (seat.label || (isSeat ? '' : '')) : '';
       html += `<td class="${cls.join(' ')}" data-r="${r}" data-c="${c}"
         onmousedown="onGridMouseDown(${r},${c},event)"
+        ontouchstart="onGridTouchStart(${r},${c},event)"
         onmouseover="onGridMouseOver(${r},${c},event)"
         onclick="onGridClick(${r},${c},event)">${zoneTag}${groupTag}<span class="seat-label">${label}</span></td>`;
     }
@@ -533,20 +534,30 @@ function renderGridEditor() {
   renderZoneList();
 }
 
-// Grid interaction — unified desktop & mobile
+// Grid interaction — unified desktop & mobile with proper touch support
 let isDragging = false, dragStart = null, dragEnd = null;
 let longPressActive = false;
 let longPressTimer = null;
 let hasMoved = false;
+let touchActive = false; // true when handling a touch event
 
-function onGridMouseDown(r, c, e) {
+function findCellFromTouch(touch) {
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  if (!el) return null;
+  const td = el.closest('td[data-r][data-c]');
+  if (!td) return null;
+  return { r: parseInt(td.dataset.r), c: parseInt(td.dataset.c) };
+}
+
+function startDrag(r, c, e) {
   e.preventDefault();
   isDragging = true;
   hasMoved = false;
   dragStart = {r, c}; dragEnd = {r, c};
   longPressActive = false;
+  touchActive = (e.type === 'touchstart');
 
-  if (isMobile) {
+  if (isMobile || touchActive) {
     longPressTimer = setTimeout(() => {
       longPressActive = true;
       multiSelected.add(r + ',' + c);
@@ -556,19 +567,39 @@ function onGridMouseDown(r, c, e) {
   }
 }
 
-function onGridMouseOver(r, c, e) {
+function onGridMouseDown(r, c, e) { startDrag(r, c, e); }
+
+function onGridTouchStart(r, c, e) {
+  e.preventDefault();
+  startDrag(r, c, e);
+}
+
+function updateDrag(r, c, e) {
   if (!isDragging) return;
   hasMoved = true;
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   dragEnd = {r, c};
-  if (isMobile || longPressActive) {
-    highlightDragSelection();
-  } else if (e.ctrlKey || e.metaKey) {
+  if (isMobile || touchActive || longPressActive || e.ctrlKey || e.metaKey) {
     highlightDragSelection();
   }
 }
 
-document.addEventListener('mouseup', () => {
+function onGridMouseOver(r, c, e) {
+  if (touchActive) return; // let touchmove handle it
+  updateDrag(r, c, e);
+}
+
+// Global touchmove handler
+document.addEventListener('touchmove', function(e) {
+  if (!isDragging || !touchActive) return;
+  e.preventDefault();
+  const cell = findCellFromTouch(e.touches[0]);
+  if (cell) {
+    updateDrag(cell.r, cell.c, e);
+  }
+}, { passive: false });
+
+function endDrag(e) {
   if (!isDragging) return;
   isDragging = false;
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
@@ -577,7 +608,7 @@ document.addEventListener('mouseup', () => {
   const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
   const isSingle = (r1 === r2 && c1 === c2);
 
-  if (isMobile) {
+  if (isMobile || touchActive) {
     if (longPressActive || hasMoved) {
       const newSel = new Set(longPressActive ? [...multiSelected] : []);
       for (let rr = r1; rr <= r2; rr++)
@@ -590,6 +621,7 @@ document.addEventListener('mouseup', () => {
       toggleSeat(r1, c1);
     }
     longPressActive = false;
+    touchActive = false;
     dragStart = dragEnd = null;
     return;
   }
@@ -605,10 +637,13 @@ document.addEventListener('mouseup', () => {
     document.getElementById('zoneName').value = '';
   }
   dragStart = dragEnd = null;
-});
+}
+
+document.addEventListener('mouseup', endDrag);
+document.addEventListener('touchend', endDrag);
 
 function onGridClick(r, c, e) {
-  if (isMobile) return;
+  if (isMobile || touchActive) return;
   if (hasMoved) return;
 
   if (e.ctrlKey || e.metaKey) {
