@@ -1,0 +1,1664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>座位排布工具</title>
+<meta name="description" content="导入名单和座位表，设置分组规则，自动排座">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="排座位">
+<link rel="manifest" href="data:application/json,{'name':'座位排布工具','short_name':'排座位','start_url':'.','display':'standalone','background_color':'#f9fafb','theme_color':'#4f46e5','icons':[]}">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.11.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+<style>
+:root {
+  --primary: #4f46e5; --primary-light: #eef2ff; --danger: #dc2626; --success: #16a34a;
+  --warning: #f59e0b; --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+  --gray-300: #d1d5db; --gray-400: #9ca3af; --gray-500: #6b7280; --gray-600: #4b5563;
+  --gray-700: #374151; --gray-800: #1f2937; --gray-900: #111827;
+  --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,.1);
+  --grid-cell: 64px; --grid-cell-h: 42px; --grid-font: 11px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--gray-50);color:var(--gray-800);line-height:1.6;min-height:100vh;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.app{max-width:1200px;margin:0 auto;padding:16px}
+
+.header{background:white;border-radius:var(--radius);padding:16px 20px;margin-bottom:16px;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.header h1{font-size:20px;font-weight:700}
+
+.tabs{display:flex;gap:4px;margin-bottom:16px;background:white;border-radius:var(--radius);padding:4px;box-shadow:var(--shadow)}
+.tab{flex:1;padding:10px 12px;border:none;background:transparent;cursor:pointer;border-radius:6px;font-size:14px;font-weight:500;color:var(--gray-500);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px}
+.tab:hover{background:var(--gray-50);color:var(--gray-700)}
+.tab.active{background:var(--primary);color:white}
+.tab .step-num{width:22px;height:22px;border-radius:50%;background:var(--gray-200);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--gray-600);flex-shrink:0}
+.tab.active .step-num{background:rgba(255,255,255,.3);color:white}
+
+.panel{display:none;background:white;border-radius:var(--radius);padding:24px 20px;box-shadow:var(--shadow);min-height:400px}
+.panel.active{display:block}
+
+.btn{padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px;min-height:44px;-webkit-tap-highlight-color:transparent}
+.btn-primary{background:var(--primary);color:white}.btn-primary:hover{background:#4338ca}
+.btn-outline{background:white;border:1px solid var(--gray-300);color:var(--gray-700)}.btn-outline:hover{background:var(--gray-50)}
+.btn-danger{background:var(--danger);color:white}.btn-danger:hover{background:#b91c1c}
+.btn-sm{padding:6px 12px;font-size:12px;min-height:32px}.btn-lg{padding:14px 28px;font-size:16px;min-height:52px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-xs{padding:3px 8px;font-size:11px;min-height:28px}
+
+textarea.textarea{width:100%;min-height:160px;padding:12px;border:2px dashed var(--gray-300);border-radius:var(--radius);font-size:16px;font-family:inherit;resize:vertical}
+textarea.textarea:focus{outline:none;border-color:var(--primary)}
+
+.drop-zone{border:2px dashed var(--gray-300);border-radius:var(--radius);padding:28px 16px;text-align:center;cursor:pointer;transition:all .15s;margin:12px 0;min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--primary);background:var(--primary-light)}
+.drop-zone .icon{font-size:32px;margin-bottom:6px}
+.drop-zone p{color:var(--gray-500);font-size:14px}
+
+.section-title{font-size:15px;font-weight:600;color:var(--gray-900);margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--gray-100)}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:13px;font-weight:500;color:var(--gray-600);margin-bottom:4px}
+.form-group input,.form-group select{width:100%;padding:10px 12px;border:1px solid var(--gray-300);border-radius:6px;font-size:16px;min-height:44px}
+.form-group input:focus,.form-group select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+.row{display:flex;gap:12px}.row>*{flex:1}
+
+.tag{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;background:var(--gray-100);border-radius:14px;font-size:13px;margin:3px;min-height:30px}
+.tag.clickable{cursor:pointer;border:1px solid var(--gray-300)}
+.tag.clickable:hover{background:var(--primary-light);border-color:var(--primary)}
+.tag.clickable.selected{background:var(--primary);color:white;border-color:var(--primary)}
+.tag .remove{cursor:pointer;font-weight:700;color:var(--gray-400);margin-left:4px;font-size:16px;padding:2px 4px}
+.tag .remove:hover{color:var(--danger)}
+
+/* Grid editor */
+.grid-editor{overflow:auto;max-height:500px;border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px;background:var(--gray-50);position:relative;-webkit-overflow-scrolling:touch}
+.grid-table{border-collapse:collapse;margin:0 auto}
+.grid-table td{width:var(--grid-cell);height:var(--grid-cell-h);text-align:center;border:1px solid var(--gray-300);font-size:var(--grid-font);cursor:pointer;position:relative;transition:background .1s;background:white;user-select:none;-webkit-user-select:none;padding:2px}
+.grid-table td:active{background:#eef2ff}
+.grid-table td.selected-multi{background:#dbeafe !important;border-color:var(--primary) !important;box-shadow:inset 0 0 0 2px var(--primary)}
+.grid-table td.aisle{background:var(--gray-200);cursor:default;color:transparent}
+.grid-table td .seat-label{font-size:10px;color:var(--gray-500);pointer-events:none}
+.grid-table td .zone-tag{position:absolute;top:1px;right:2px;font-size:8px;background:var(--warning);color:white;padding:0 3px;border-radius:2px;font-weight:700;pointer-events:none}
+.grid-table td .group-tag{position:absolute;bottom:1px;left:2px;font-size:8px;background:var(--success);color:white;padding:0 3px;border-radius:2px;pointer-events:none}
+
+/* Mobile multi-select: long-press indicator */
+.grid-table td.longpress-active{background:#fef3c7 !important;border:2px solid var(--warning) !important}
+
+/* Batch toolbar */
+.batch-toolbar{display:none;position:sticky;top:0;z-index:10;background:var(--gray-800);color:white;padding:10px 12px;border-radius:8px;margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap}
+.batch-toolbar.show{display:flex}
+.batch-toolbar span{font-size:12px;white-space:nowrap}
+.batch-toolbar select{padding:6px 8px;border-radius:4px;border:none;font-size:13px;min-height:36px}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;justify-content:center;align-items:center;padding:16px}
+.modal-overlay.show{display:flex}
+.modal{background:white;border-radius:12px;padding:20px;max-width:700px;width:100%;max-height:85vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h3{font-size:17px;margin-bottom:14px}
+
+/* Group cards */
+.group-card{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:10px}
+.group-card .group-header{display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.group-card .group-members{display:flex;flex-wrap:wrap;gap:4px;min-height:28px;align-items:center}
+.group-card .empty-hint{color:var(--gray-400);font-size:12px}
+
+/* Member pool */
+.member-pool{display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:white;border:1px solid var(--gray-200);border-radius:6px;min-height:36px;align-items:center}
+
+/* Result grid */
+.result-grid-table td{font-size:12px;font-weight:500;cursor:pointer}
+.result-grid-table td.filled{color:var(--gray-800)}
+.result-grid-table td.empty{background:var(--gray-50);color:var(--gray-400);cursor:pointer}
+.result-grid-table td.group-0{background:#eef2ff}.result-grid-table td.group-1{background:#fef3c7}
+.result-grid-table td.group-2{background:#d1fae5}.result-grid-table td.group-3{background:#fce7f3}
+.result-grid-table td.group-4{background:#e0e7ff}.result-grid-table td.group-5{background:#cffafe}
+.result-grid-table td.group-6{background:#fecaca}.result-grid-table td.group-7{background:#ddd6fe}
+
+.result-grid-table td.drag-over{border:3px dashed var(--primary) !important;background:#c7d2fe !important}
+.result-grid-table td.drag-source{opacity:.4}
+
+/* Tap-swap for mobile */
+.result-grid-table td.tap-selected{box-shadow:0 0 0 3px var(--warning) !important;z-index:2}
+
+/* Zone list */
+.zone-item{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--gray-50);border-radius:6px;margin-bottom:6px;font-size:13px;flex-wrap:wrap}
+.zone-item select{padding:4px 8px;border-radius:4px;border:1px solid var(--gray-300);font-size:12px;min-height:36px}
+
+/* Toast */
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);padding:12px 24px;background:var(--gray-900);color:white;border-radius:8px;font-size:14px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.toast.success{background:var(--success)}
+.toast.error{background:var(--danger)}
+
+.export-bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+
+/* Mobile mode toggle hint */
+.mobile-hint{display:none;font-size:11px;color:var(--gray-500);text-align:center;margin-top:4px}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width:768px){
+  :root{--grid-cell:48px;--grid-cell-h:38px;--grid-font:10px}
+  .app{padding:8px}
+  .header{padding:12px 14px;flex-direction:column;text-align:center}
+  .header h1{font-size:18px}
+
+  .tabs{gap:2px;margin-bottom:10px}
+  .tab{font-size:11px;padding:8px 4px;gap:3px;min-height:40px;flex-direction:column}
+  .tab .step-num{width:18px;height:18px;font-size:10px}
+
+  .panel{padding:16px 12px;min-height:300px;border-radius:6px}
+
+  .btn{min-height:40px;padding:8px 14px;font-size:13px}
+  .btn-lg{min-height:48px;padding:12px 20px;font-size:15px}
+
+  .section-title{font-size:14px}
+  .row{flex-direction:column;gap:8px}
+
+  .grid-editor{max-height:380px;padding:8px}
+  .grid-table td{padding:1px}
+
+  .modal{padding:16px;max-height:90vh;border-radius:10px}
+  .modal h3{font-size:16px}
+
+  .toast{top:10px;font-size:13px;padding:10px 18px}
+
+  .group-card .group-header{flex-direction:column;align-items:flex-start}
+  .group-card .group-header input{width:100% !important}
+
+  .mobile-hint{display:block}
+}
+
+@media (max-width:400px){
+  :root{--grid-cell:38px;--grid-cell-h:34px;--grid-font:9px}
+  .tab{font-size:10px;padding:6px 2px}
+  .tab .step-num{width:16px;height:16px;font-size:9px}
+  .grid-editor{max-height:300px;padding:4px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="header">
+  <h1>🪑 座位排布工具</h1>
+  <div>
+    <button class="btn btn-outline btn-sm" onclick="saveToFile()">💾 保存项目</button>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('loadFile').click()">📂 打开</button>
+    <input type="file" id="loadFile" accept=".json" style="display:none" onchange="loadFromFile(this)">
+    <button class="btn btn-outline btn-sm" onclick="resetAll()">🔄 重置</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab(0)"><span class="step-num">1</span> 导入名单</button>
+  <button class="tab" onclick="switchTab(1)"><span class="step-num">2</span> 设置布局</button>
+  <button class="tab" onclick="switchTab(2)"><span class="step-num">3</span> 设置规则</button>
+  <button class="tab" onclick="switchTab(3)"><span class="step-num">4</span> 排座结果</button>
+</div>
+
+<!-- STEP 1 -->
+<div class="panel active" id="panel-0">
+  <div class="section-title">方式一：粘贴名字</div>
+  <textarea class="textarea" id="nameTextarea" placeholder="一行一个名字&#10;张三&#10;李四&#10;王五&#10;&#10;如果是多列：名字 分组&#10;张三  第一组&#10;李四  第二组"></textarea>
+  <button class="btn btn-primary" onclick="parsePastedNames()" style="margin-top:8px">解析名单</button>
+
+  <div class="section-title" style="margin-top:20px">方式二：上传文件</div>
+  <div class="drop-zone" id="nameDropZone" onclick="document.getElementById('nameFileInput').click()">
+    <div class="icon">📄</div>
+    <p>点击或拖拽上传 Excel / CSV</p>
+    <input type="file" id="nameFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="importNameFile(this)">
+  </div>
+
+  <div class="section-title" style="margin-top:20px">名单预览 (<span id="nameCount">0</span> 人)</div>
+  <div id="namePreview" style="max-height:200px;overflow:auto;background:var(--gray-50);border-radius:var(--radius);padding:12px">
+    <span style="color:var(--gray-400)">还没有导入名单</span>
+  </div>
+
+  <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-outline" onclick="document.getElementById('nameTextarea').value='';updateNamePreview()">清空</button>
+    <button class="btn btn-primary btn-lg" onclick="switchTab(1)">下一步 →</button>
+  </div>
+</div>
+
+<!-- STEP 2 -->
+<div class="panel" id="panel-1">
+  <div class="section-title">方式 A：导入座位表</div>
+  <div class="drop-zone" id="layoutDropZone" onclick="document.getElementById('layoutFileInput').click()">
+    <div class="icon">🏛️</div>
+    <p>上传座位表：Excel / Word / PDF / CSV</p>
+    <input type="file" id="layoutFileInput" accept=".xlsx,.xls,.docx,.pdf,.csv" style="display:none" onchange="importLayoutFile(this)">
+  </div>
+  <div id="layoutImportStatus" style="font-size:13px;color:var(--gray-500);margin-top:6px"></div>
+
+  <div class="section-title" style="margin-top:20px">方式 B：手动设置</div>
+  <div class="row">
+    <div class="form-group"><label>行数</label><input type="number" id="manualRows" value="8" min="1" max="50"></div>
+    <div class="form-group"><label>列数</label><input type="number" id="manualCols" value="10" min="1" max="50"></div>
+  </div>
+  <button class="btn btn-outline" onclick="createManualGrid()">生成网格</button>
+
+  <div class="section-title" style="margin-top:20px">座位表 (<span id="seatCount">0</span> 座)</div>
+
+  <!-- Batch toolbar -->
+  <div class="batch-toolbar" id="batchToolbar">
+    <span id="batchCount">已选 0 座</span>
+    <button class="btn btn-sm" style="background:white;color:var(--gray-800)" onclick="batchSetSeat(true)">设为可坐</button>
+    <button class="btn btn-sm" style="background:var(--gray-400);color:white" onclick="batchSetSeat(false)">设为过道</button>
+    <select id="batchGroup" style="padding:4px 8px;border-radius:4px;border:none;font-size:12px">
+      <option value="">分配到分组...</option>
+    </select>
+    <button class="btn btn-sm" style="background:var(--success);color:white" onclick="batchAssignGroup()">应用</button>
+    <div style="flex:1"></div>
+    <button class="btn btn-sm" style="background:var(--danger);color:white" onclick="clearMultiSelect()">✕ 取消选中</button>
+  </div>
+
+  <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">
+    💡 <b>Ctrl+点击</b>多选，<b>Shift+点击</b>范围选，<b>拖拽</b>圈选区域
+    <span class="mobile-hint">📱 手机：<b>长按</b>座位进入多选模式，再点击选择</span>
+    <button class="btn btn-xs btn-outline mobile-hint" id="mobileMultiToggle" onclick="toggleMobileMultiSelect()" style="margin-left:8px">开启多选</button>
+  </div>
+
+  <div class="grid-editor" id="gridEditor">
+    <span style="color:var(--gray-400)">还没有座位表</span>
+  </div>
+
+  <!-- Zone manager -->
+  <div id="zoneManager" style="display:none;margin-top:16px">
+    <div class="section-title">区域管理</div>
+    <div class="row">
+      <div class="form-group"><label>区域名称</label><input type="text" id="zoneName" placeholder="如：主席台、嘉宾区"></div>
+      <div class="form-group"><label>绑定分组</label><select id="zoneGroupBind"><option value="">不绑定</option></select></div>
+      <div class="form-group" style="flex:0 0 auto"><label>&nbsp;</label><button class="btn btn-outline" onclick="markZone()">标记区域</button></div>
+    </div>
+    <div id="zoneList"></div>
+  </div>
+
+  <div style="margin-top:16px;display:flex;gap:8px;justify-content:space-between">
+    <button class="btn btn-outline" onclick="switchTab(0)">← 上一步</button>
+    <button class="btn btn-primary btn-lg" onclick="switchTab(2)">下一步 →</button>
+  </div>
+</div>
+
+<!-- STEP 3 -->
+<div class="panel" id="panel-2">
+  <div class="section-title">分组管理</div>
+  <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">同组人尽量坐在一起。未分组的人排在最后随机填充。</p>
+  <div id="groupCards"></div>
+  <button class="btn btn-outline btn-sm" onclick="addGroup()" style="margin-top:8px">+ 添加新分组</button>
+
+  <div class="section-title" style="margin-top:24px">未分配人员</div>
+  <div class="member-pool" id="unassignedPool"></div>
+
+  <div class="section-title" style="margin-top:24px">禁止同座</div>
+  <p style="font-size:13px;color:var(--gray-500);margin-bottom:8px">点击人名选中，再点"标记禁止同座"，选中的两人或多人不能挨着</p>
+  <div class="member-pool" id="apartPool"></div>
+  <button class="btn btn-outline btn-sm" onclick="addApartRule()" style="margin-top:8px">标记禁止同座</button>
+  <div id="apartRules" style="margin-top:8px"></div>
+
+  <div class="section-title" style="margin-top:24px">固定座位（可视化选座）</div>
+  <p style="font-size:13px;color:var(--gray-500);margin-bottom:8px">指定某人必须坐某个位置</p>
+  <div id="fixedRules" style="margin-bottom:12px"></div>
+  <button class="btn btn-outline btn-sm" onclick="openFixedSeatPicker()">+ 添加固定座位</button>
+
+  <div style="margin-top:20px;display:flex;gap:8px;justify-content:space-between">
+    <button class="btn btn-outline" onclick="switchTab(1)">← 上一步</button>
+    <button class="btn btn-primary btn-lg" onclick="switchTab(3)">下一步 →</button>
+  </div>
+</div>
+
+<!-- STEP 4 -->
+<div class="panel" id="panel-3">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+    <div>
+      <button class="btn btn-primary btn-lg" onclick="autoArrange()">🎲 自动排座</button>
+      <button class="btn btn-outline" onclick="autoArrange()" style="margin-left:8px">重新排列</button>
+    </div>
+    <div class="export-bar">
+      <button class="btn btn-outline btn-sm" onclick="exportExcel()">📥 导出 Excel</button>
+      <button class="btn btn-outline btn-sm" onclick="exportCSV()">📥 导出 CSV</button>
+      <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ 打印</button>
+    </div>
+  </div>
+
+  <div id="arrangeStatus" style="text-align:center;padding:40px;color:var(--gray-400)">
+    点击「自动排座」开始<br>
+    <small>排好后可以<b>拖拽</b>人名交换位置</small>
+  </div>
+
+  <div class="grid-editor" id="resultGrid" style="display:none"></div>
+  <div id="arrangeStats" style="margin-top:12px;font-size:13px;color:var(--gray-500)"></div>
+</div>
+</div>
+
+<!-- Fixed seat picker modal -->
+<div class="modal-overlay" id="fixedSeatModal">
+  <div class="modal">
+    <h3>选择固定座位</h3>
+    <div class="row">
+      <div class="form-group"><label>选择人名</label>
+        <select id="fixedPickPerson"><option value="">请选择</option></select>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--gray-500);margin-bottom:8px">在下方网格中<b>点击</b>目标座位（已占的不可选）</p>
+    <div class="grid-editor" id="fixedSeatGrid" style="max-height:350px"></div>
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeFixedSeatPicker()">取消</button>
+      <button class="btn btn-primary" onclick="confirmFixedSeat()">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ==================== STATE ====================
+const DEFAULT_STATE = {
+  names: [],
+  groups: [
+    { name: '第一组', members: [], zoneBind: '' },
+    { name: '第二组', members: [], zoneBind: '' },
+    { name: '第三组', members: [], zoneBind: '' },
+    { name: '第四组', members: [], zoneBind: '' }
+  ],
+  layout: { rows: 0, cols: 0, seats: [] },
+  zones: {},              // {zoneName: [{r,c},...], groupBind: '', seatable: true}
+  zoneProps: {},          // {zoneName: {groupBind: '', seatable: true}}
+  rules: {
+    apart: [],            // [[name1, name2], ...]
+    fixed: []             // [{name, r, c}, ...]
+  },
+  result: null,
+  selectedInPool: []      // temp: selected names for apart rules
+};
+
+let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+
+function saveState() { localStorage.setItem('seat-arranger-v2', JSON.stringify(state)); }
+function loadState() {
+  const s = localStorage.getItem('seat-arranger-v2');
+  if (s) try { state = JSON.parse(s); } catch(e) {}
+}
+loadState();
+
+// Migration: ensure groups exist
+if (!state.groups || state.groups.length === 0) {
+  state.groups = DEFAULT_STATE.groups.map(g => ({...g, members: []}));
+}
+if (!state.zoneProps) state.zoneProps = {};
+if (!state.selectedInPool) state.selectedInPool = [];
+
+// ==================== MOBILE DETECTION ====================
+const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || (window.innerWidth < 768);
+let mobileMultiSelectMode = false; // Toggle for mobile multi-select
+
+// ==================== TOAST ====================
+function toast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast ' + type + ' show';
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ==================== TABS ====================
+function switchTab(idx) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i===idx));
+  if (idx === 1) { renderGridEditor(); updateGroupSelects(); }
+  if (idx === 2) { renderGroupCards(); renderApartPool(); renderApartRules(); renderFixedRules(); updateGroupSelects(); }
+  if (idx === 3) { document.getElementById('arrangeStatus').style.display = state.result ? 'none' : ''; }
+}
+
+// ==================== STEP 1: NAMES ====================
+function parsePastedNames() {
+  const raw = document.getElementById('nameTextarea').value.trim();
+  if (!raw) return;
+  const lines = raw.split(/[\n\r]+/).filter(l => l.trim());
+  const hasTab = lines[0].includes('\t');
+  state.names = lines.map(line => {
+    const parts = hasTab ? line.split('\t') : line.split(/[,，\s]+/);
+    return { name: parts[0].trim(), group: parts[1] ? parts[1].trim() : '', note: parts[2] ? parts[2].trim() : '' };
+  });
+  autoAssignGroups();
+  updateNamePreview();
+  saveState();
+  toast('已解析 ' + state.names.length + ' 个名字');
+}
+
+function importNameFile(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, {type: 'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
+    if (rows.length < 2) { toast('文件为空', 'error'); return; }
+    const header = rows[0];
+    const nameIdx = header.findIndex(h => /姓名|名字|name/i.test(String(h)));
+    const groupIdx = header.findIndex(h => /分组|组别|部门|班级|group|组/i.test(String(h)));
+    state.names = rows.slice(1).filter(r => r.length > 0 && String(r[nameIdx >= 0 ? nameIdx : 0] || '').trim()).map(r => ({
+      name: String(r[nameIdx >= 0 ? nameIdx : 0] || '').trim(),
+      group: groupIdx >= 0 ? String(r[groupIdx] || '').trim() : '',
+      note: ''
+    }));
+    autoAssignGroups();
+    updateNamePreview();
+    saveState();
+    toast('已导入 ' + state.names.length + ' 个名字');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function autoAssignGroups() {
+  // Auto-assign names to groups based on name.group field
+  state.groups.forEach(g => { g.members = []; });
+  const unassigned = [];
+  state.names.forEach(n => {
+    const gIdx = state.groups.findIndex(g => g.name === n.group || n.group.includes(g.name));
+    if (gIdx >= 0) {
+      if (!state.groups[gIdx].members.includes(n.name)) state.groups[gIdx].members.push(n.name);
+    } else if (n.group) {
+      // New group from import
+      const existing = state.groups.find(g => g.name === n.group);
+      if (existing) {
+        if (!existing.members.includes(n.name)) existing.members.push(n.name);
+      } else {
+        state.groups.push({ name: n.group, members: [n.name], zoneBind: '' });
+      }
+    } else {
+      unassigned.push(n.name);
+    }
+  });
+}
+
+function updateNamePreview() {
+  const div = document.getElementById('namePreview');
+  document.getElementById('nameCount').textContent = state.names.length;
+  if (state.names.length === 0) {
+    div.innerHTML = '<span style="color:var(--gray-400)">还没有导入名单</span>'; return;
+  }
+  div.innerHTML = state.names.map((n,i) =>
+    `<span class="tag">${n.name}${n.group?' ['+n.group+']':''}<span class="remove" onclick="removeName(${i})">×</span></span>`
+  ).join('');
+}
+function removeName(idx) { state.names.splice(idx,1); autoAssignGroups(); updateNamePreview(); saveState(); }
+
+// ==================== STEP 2: LAYOUT ====================
+let multiSelected = new Set(); // Set of "r,c" strings
+
+function createManualGrid() {
+  const rows = parseInt(document.getElementById('manualRows').value) || 8;
+  const cols = parseInt(document.getElementById('manualCols').value) || 10;
+  state.layout = { rows, cols, seats: [] };
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    state.layout.seats.push({ r, c, label: '', zone: '', isSeat: true, groupBind: '' });
+  }
+  state.zones = {}; state.zoneProps = {}; multiSelected.clear();
+  renderGridEditor(); saveState();
+}
+
+function renderGridEditor() {
+  const container = document.getElementById('gridEditor');
+  const seats = state.layout.seats;
+  if (seats.length === 0) {
+    container.innerHTML = '<span style="color:var(--gray-400)">还没有座位表，请导入或手动创建</span>';
+    document.getElementById('seatCount').textContent = '0';
+    document.getElementById('zoneManager').style.display = 'none';
+    document.getElementById('batchToolbar').classList.remove('show');
+    return;
+  }
+  const maxR = Math.max(...seats.map(s => s.r)) + 1;
+  const maxC = Math.max(...seats.map(s => s.c)) + 1;
+  document.getElementById('seatCount').textContent = seats.filter(s => s.isSeat).length;
+  document.getElementById('zoneManager').style.display = '';
+  updateBatchToolbar();
+
+  let html = '<table class="grid-table"><tbody>';
+  for (let r = 0; r < maxR; r++) {
+    html += '<tr>';
+    for (let c = 0; c < maxC; c++) {
+      const seat = seats.find(s => s.r === r && s.c === c);
+      const isSeat = seat && seat.isSeat;
+      const zone = seat ? seat.zone : '';
+      const gb = seat ? seat.groupBind : '';
+      const key = r + ',' + c;
+      let cls = [];
+      if (!isSeat) cls.push('aisle');
+      if (multiSelected.has(key)) cls.push('selected-multi');
+      const zoneTag = zone ? `<span class="zone-tag">${zone.substring(0,2)}</span>` : '';
+      const groupTag = gb ? `<span class="group-tag">${gb}</span>` : '';
+      const label = seat ? (seat.label || (isSeat ? '' : '')) : '';
+      html += `<td class="${cls.join(' ')}" data-r="${r}" data-c="${c}"
+        onmousedown="onGridMouseDown(${r},${c},event)"
+        onmouseover="onGridMouseOver(${r},${c},event)"
+        onclick="onGridClick(${r},${c},event)">${zoneTag}${groupTag}<span class="seat-label">${label}</span></td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  renderZoneList();
+}
+
+// Mobile multi-select toggle
+function toggleMobileMultiSelect() {
+  mobileMultiSelectMode = !mobileMultiSelectMode;
+  const btn = document.getElementById('mobileMultiToggle');
+  if (mobileMultiSelectMode) {
+    btn.textContent = '关闭多选';
+    btn.style.background = 'var(--warning)';
+    btn.style.color = 'white';
+    btn.style.borderColor = 'var(--warning)';
+    toast('多选模式已开启，点击座位即可多选');
+  } else {
+    btn.textContent = '开启多选';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    multiSelected.clear();
+    renderGridEditor();
+  }
+}
+
+// Long-press detection for mobile
+let longPressTimer = null;
+let longPressPos = null;
+
+// Grid interaction
+let isDragging = false, dragStart = null, dragEnd = null;
+let lastClickWasCtrl = false;
+
+function onGridMouseDown(r, c, e) {
+  e.preventDefault();
+  isDragging = true;
+  dragStart = {r, c}; dragEnd = {r, c};
+  lastClickWasCtrl = e.ctrlKey || e.metaKey || mobileMultiSelectMode;
+
+  // Long-press detection for mobile
+  if (isMobile) {
+    longPressPos = {r, c};
+    longPressTimer = setTimeout(() => {
+      if (!mobileMultiSelectMode) {
+        toggleMobileMultiSelect();
+      }
+      // Add this cell to selection
+      multiSelected.add(r + ',' + c);
+      renderGridEditor();
+      updateBatchToolbar();
+      longPressPos = null;
+    }, 600);
+  }
+}
+
+function onGridMouseOver(r, c, e) {
+  if (!isDragging) return;
+  // Cancel long-press if finger moves
+  if (longPressTimer && longPressPos && (longPressPos.r !== r || longPressPos.c !== c)) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressPos = null;
+  }
+  dragEnd = {r, c};
+  highlightDragSelection();
+}
+
+document.addEventListener('mouseup', () => {
+  if (isDragging) {
+    isDragging = false;
+    if (dragStart) {
+      const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
+      const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
+      if (r1 === r2 && c1 === c2 && !lastClickWasCtrl) {
+        // Single click without ctrl - handled in onclick
+      } else {
+        // Drag selection
+        const newSel = new Set(lastClickWasCtrl ? [...multiSelected] : []);
+        for (let rr = r1; rr <= r2; rr++)
+          for (let cc = c1; cc <= c2; cc++)
+            newSel.add(rr + ',' + cc);
+        multiSelected = newSel;
+        renderGridEditor();
+        if (r1 !== r2 || c1 !== c2) {
+          document.getElementById('zoneName').value = '';
+        }
+      }
+    }
+    dragStart = dragEnd = null;
+  }
+});
+
+function onGridClick(r, c, e) {
+  // Cancel long press
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; longPressPos = null; }
+
+  if (e.ctrlKey || e.metaKey || mobileMultiSelectMode) {
+    const key = r + ',' + c;
+    if (multiSelected.has(key)) multiSelected.delete(key);
+    else multiSelected.add(key);
+    renderGridEditor(); return;
+  }
+  if (e.shiftKey && multiSelected.size > 0) {
+    const last = [...multiSelected].pop().split(',').map(Number);
+    const r1 = Math.min(last[0], r), r2 = Math.max(last[0], r);
+    const c1 = Math.min(last[1], c), c2 = Math.max(last[1], c);
+    for (let rr = r1; rr <= r2; rr++)
+      for (let cc = c1; cc <= c2; cc++)
+        multiSelected.add(rr + ',' + cc);
+    renderGridEditor(); return;
+  }
+  // Plain single click - toggle seat
+  if (dragStart && dragStart.r === dragEnd.r && dragStart.c === dragEnd.c && !isDragging) {
+    toggleSeat(r, c);
+  }
+}
+
+function highlightDragSelection() {
+  if (!dragStart || !dragEnd) return;
+  const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
+  const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
+  document.querySelectorAll('#gridEditor td').forEach(td => {
+    const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
+    td.style.background = (r >= r1 && r <= r2 && c >= c1 && c <= c2) ? '#dbeafe' : '';
+  });
+}
+
+function toggleSeat(r, c) {
+  const seat = state.layout.seats.find(s => s.r === r && s.c === c);
+  if (!seat) {
+    state.layout.seats.push({ r, c, label: '', zone: '', isSeat: false, groupBind: '' });
+  } else {
+    seat.isSeat = !seat.isSeat;
+    if (!seat.isSeat) { seat.zone = ''; seat.groupBind = ''; }
+  }
+  multiSelected.clear();
+  renderGridEditor(); saveState();
+}
+
+function clearMultiSelect() { multiSelected.clear(); renderGridEditor(); }
+
+function updateBatchToolbar() {
+  const tb = document.getElementById('batchToolbar');
+  document.getElementById('batchCount').textContent = '已选 ' + multiSelected.size + ' 座';
+  tb.classList.toggle('show', multiSelected.size > 0);
+  // Update group select
+  const sel = document.getElementById('batchGroup');
+  sel.innerHTML = '<option value="">分配到分组...</option>' +
+    state.groups.map((g,i) => `<option value="${i}">${g.name}</option>`).join('');
+}
+
+function batchSetSeat(isSeat) {
+  multiSelected.forEach(key => {
+    const [r, c] = key.split(',').map(Number);
+    const seat = state.layout.seats.find(s => s.r === r && s.c === c);
+    if (seat) { seat.isSeat = isSeat; if (!isSeat) { seat.zone = ''; seat.groupBind = ''; } }
+    else state.layout.seats.push({ r, c, label: '', zone: '', isSeat, groupBind: '' });
+  });
+  multiSelected.clear(); renderGridEditor(); saveState();
+}
+
+function batchAssignGroup() {
+  const gIdx = parseInt(document.getElementById('batchGroup').value);
+  if (isNaN(gIdx)) { toast('请先选择分组', 'error'); return; }
+  const gName = state.groups[gIdx].name;
+  multiSelected.forEach(key => {
+    const [r, c] = key.split(',').map(Number);
+    const seat = state.layout.seats.find(s => s.r === r && s.c === c);
+    if (seat && seat.isSeat) seat.groupBind = gName;
+  });
+  toast('已分配 ' + multiSelected.size + ' 座到 ' + gName);
+  multiSelected.clear(); renderGridEditor(); saveState();
+}
+
+function markZone() {
+  const name = document.getElementById('zoneName').value.trim();
+  if (!name) { toast('请输入区域名称', 'error'); return; }
+  const cells = multiSelected.size > 0 ? [...multiSelected].map(k => { const [r,c]=k.split(',').map(Number); return {r,c}; }) : [];
+  if (cells.length === 0) { toast('请先圈选座位', 'error'); return; }
+
+  if (!state.zones[name]) state.zones[name] = [];
+  if (!state.zoneProps[name]) state.zoneProps[name] = { groupBind: '', seatable: true };
+
+  const groupBind = document.getElementById('zoneGroupBind').value;
+  state.zoneProps[name].groupBind = groupBind;
+  state.zoneProps[name].seatable = true;
+
+  cells.forEach(({r, c}) => {
+    const seat = state.layout.seats.find(s => s.r === r && s.c === c);
+    if (seat) { seat.zone = name; seat.isSeat = true; }
+    if (!state.zones[name].some(s => s.r === r && s.c === c)) state.zones[name].push({r, c});
+  });
+  document.getElementById('zoneName').value = '';
+  multiSelected.clear();
+  renderGridEditor(); saveState();
+  toast('区域「' + name + '」已标记');
+}
+
+function removeZone(name) {
+  delete state.zones[name]; delete state.zoneProps[name];
+  state.layout.seats.forEach(s => { if (s.zone === name) s.zone = ''; });
+  renderGridEditor(); saveState();
+}
+
+function updateZoneProp(name, prop, value) {
+  if (!state.zoneProps[name]) state.zoneProps[name] = { groupBind: '', seatable: true };
+  state.zoneProps[name][prop] = value;
+  if (prop === 'groupBind' && value) {
+    // Also set groupBind on individual seats
+    state.layout.seats.forEach(s => { if (s.zone === name) s.groupBind = value; });
+  }
+  if (prop === 'seatable') {
+    state.layout.seats.forEach(s => { if (s.zone === name) s.isSeat = value; });
+  }
+  renderGridEditor(); saveState();
+}
+
+function renderZoneList() {
+  const div = document.getElementById('zoneList');
+  const zones = Object.keys(state.zones);
+  if (zones.length === 0) {
+    div.innerHTML = '<span style="color:var(--gray-400);font-size:13px">暂无区域，圈选座位后标记</span>'; return;
+  }
+  div.innerHTML = zones.map(z => {
+    const prop = state.zoneProps[z] || { groupBind: '', seatable: true };
+    const groupOpts = '<option value="">不绑定</option>' + state.groups.map(g => `<option value="${g.name}" ${prop.groupBind===g.name?'selected':''}>${g.name}</option>`).join('');
+    return `<div class="zone-item">
+      <b>${z}</b> (${state.zones[z].length}座)
+      <select onchange="updateZoneProp('${z}','groupBind',this.value)">${groupOpts}</select>
+      <label style="font-size:12px"><input type="checkbox" ${prop.seatable?'checked':''} onchange="updateZoneProp('${z}','seatable',this.checked)"> 可坐</label>
+      <button class="btn btn-xs btn-outline" onclick="removeZone('${z}')" style="margin-left:auto">删除</button>
+    </div>`;
+  }).join('');
+  // Update zoneGroupBind dropdown
+  const sel = document.getElementById('zoneGroupBind');
+  sel.innerHTML = '<option value="">不绑定</option>' + state.groups.map(g => `<option value="${g.name}">${g.name}</option>`).join('');
+}
+
+function updateGroupSelects() {
+  renderZoneList();
+  updateBatchToolbar();
+}
+
+// Layout file import functions (same as before)
+function importLayoutFile(input) {
+  const file = input.files[0]; if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  const status = document.getElementById('layoutImportStatus');
+  status.textContent = '正在解析...';
+  if (ext === 'csv') {
+    const reader = new FileReader();
+    reader.onload = function(e) { parseLayoutCSV(e.target.result); status.textContent = '已导入：' + file.name; };
+    reader.readAsText(file);
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type: 'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      parseLayoutFromRows(XLSX.utils.sheet_to_json(ws, {header: 1}));
+      status.textContent = '已导入：' + file.name;
+    };
+    reader.readAsArrayBuffer(file);
+  } else if (ext === 'docx') {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      mammoth.convertToHtml({arrayBuffer: e.target.result}).then(function(result) {
+        parseLayoutFromHTML(result.value);
+        status.textContent = '已导入：' + file.name + '（请校对）';
+      }).catch(function() { status.textContent = 'Word 解析失败'; toast('Word 解析失败', 'error'); });
+    };
+    reader.readAsArrayBuffer(file);
+  } else if (ext === 'pdf') {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      pdfjsLib.getDocument({data: new Uint8Array(e.target.result)}).promise.then(function(pdf) {
+        const maxPages = Math.min(pdf.numPages, 3);
+        const promises = [];
+        for (let i = 1; i <= maxPages; i++) {
+          promises.push(pdf.getPage(i).then(page => page.getTextContent()));
+        }
+        Promise.all(promises).then(function(textContents) {
+          const allItems = [];
+          textContents.forEach(tc => tc.items.forEach(item => {
+            allItems.push({text: item.str, x: Math.round(item.transform[4]), y: Math.round(item.transform[5])});
+          }));
+          parseLayoutFromPDFItems(allItems);
+          status.textContent = '已导入：' + file.name + '（请校对）';
+        });
+      }).catch(function() { status.textContent = 'PDF 解析失败'; toast('PDF 解析失败', 'error'); });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function parseLayoutCSV(text) {
+  const lines = text.split(/[\n\r]+/).filter(l => l.trim());
+  const seats = [];
+  lines.forEach((line, r) => {
+    line.split(/[,\t]/).forEach((cell, c) => {
+      const val = cell.trim();
+      seats.push({ r, c, label: val, zone: '', isSeat: !!val, groupBind: '' });
+    });
+  });
+  state.layout = { rows: lines.length, cols: Math.max(...seats.map(s=>s.c))+1, seats };
+  state.zones = {}; state.zoneProps = {}; multiSelected.clear();
+  renderGridEditor(); saveState();
+}
+
+function parseLayoutFromRows(rows) {
+  if (rows.length === 0) return;
+  const firstRow = rows[0];
+  const hasHeader = firstRow.some(c => /行|列|座位|row|col|seat/i.test(String(c||'')));
+  const data = hasHeader ? rows.slice(1) : rows;
+  const seats = [];
+  data.forEach((row, r) => {
+    if (!row || row.every(c => !c)) return;
+    row.forEach((cell, c) => {
+      const val = String(cell||'').trim();
+      seats.push({ r, c, label: val, zone: '', isSeat: val && val !== '0', groupBind: '' });
+    });
+  });
+  if (seats.length === 0) { toast('未识别到座位', 'error'); return; }
+  state.layout = { rows: Math.max(...seats.map(s=>s.r))+1, cols: Math.max(...seats.map(s=>s.c))+1, seats };
+  state.zones = {}; state.zoneProps = {}; multiSelected.clear();
+  renderGridEditor(); saveState();
+}
+
+function parseLayoutFromHTML(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const tables = doc.querySelectorAll('table');
+  if (tables.length === 0) { toast('Word 中未找到表格', 'error'); return; }
+  let best = tables[0], max = 0;
+  tables.forEach(t => { const n = t.querySelectorAll('td,th').length; if (n > max) { max = n; best = t; } });
+  const rows = [];
+  best.querySelectorAll('tr').forEach(tr => {
+    const row = [];
+    tr.querySelectorAll('td,th').forEach(cell => {
+      const colspan = parseInt(cell.getAttribute('colspan')||'1');
+      for (let i = 0; i < colspan; i++) row.push(cell.textContent.trim());
+    });
+    if (row.length > 0) rows.push(row);
+  });
+  parseLayoutFromRows(rows);
+}
+
+function parseLayoutFromPDFItems(items) {
+  if (items.length === 0) { toast('PDF 中未识别到文本', 'error'); return; }
+  const sorted = items.slice().sort((a,b) => b.y - a.y || a.x - b.x);
+  const rows = []; let curRow = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    if (Math.abs(sorted[i].y - curRow[0].y) < 20) curRow.push(sorted[i]);
+    else { curRow.sort((a,b) => a.x-b.x); rows.push(curRow); curRow = [sorted[i]]; }
+  }
+  curRow.sort((a,b) => a.x-b.x); rows.push(curRow);
+  const seats = [];
+  rows.forEach((row, r) => row.forEach((item, c) => {
+    seats.push({ r, c, label: item.text.trim(), zone: '', isSeat: !!item.text.trim(), groupBind: '' });
+  }));
+  state.layout = { rows: rows.length, cols: Math.max(...rows.map(r=>r.length)), seats };
+  state.zones = {}; state.zoneProps = {}; multiSelected.clear();
+  renderGridEditor(); saveState();
+}
+
+// Drag & drop for file zones
+['nameDropZone','layoutDropZone'].forEach(id => {
+  const dz = document.getElementById(id); if (!dz) return;
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', function(e) {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0]; if (!file) return;
+    if (id === 'nameDropZone') { document.getElementById('nameFileInput').files = e.dataTransfer.files; importNameFile(document.getElementById('nameFileInput')); }
+    else { document.getElementById('layoutFileInput').files = e.dataTransfer.files; importLayoutFile(document.getElementById('layoutFileInput')); }
+  });
+});
+
+// ==================== STEP 3: RULES ====================
+function addGroup() {
+  state.groups.push({ name: '新分组', members: [], zoneBind: '' });
+  renderGroupCards(); saveState();
+}
+
+function removeGroup(idx) {
+  if (state.groups.length <= 1) { toast('至少保留一个分组', 'error'); return; }
+  state.groups.splice(idx, 1);
+  renderGroupCards(); saveState();
+}
+
+function updateGroupName(idx, name) {
+  state.groups[idx].name = name.trim() || ('分组' + (idx+1));
+  saveState();
+}
+
+function renderGroupCards() {
+  const container = document.getElementById('groupCards');
+  const assigned = new Set(state.groups.flatMap(g => g.members));
+  const zoneOpts = '<option value="">不绑定区域</option>' +
+    Object.keys(state.zones).map(z => `<option value="${z}">${z}</option>`).join('');
+
+  container.innerHTML = state.groups.map((g, i) => {
+    const zoneSel = `<select style="font-size:12px;padding:2px 6px;border-radius:4px;border:1px solid var(--gray-300)" onchange="state.groups[${i}].zoneBind=this.value;saveState()">
+      <option value="">不绑定区域</option>
+      ${Object.keys(state.zones).map(z => `<option value="${z}" ${g.zoneBind===z?'selected':''}>${z}</option>`).join('')}
+    </select>`;
+    return `<div class="group-card">
+      <div class="group-header">
+        <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:140px" onchange="updateGroupName(${i},this.value)">
+        <span style="font-size:12px;color:var(--gray-500)">${g.members.length}人</span>
+        <span style="font-size:12px;color:var(--gray-500)">绑定：</span>${zoneSel}
+        <button class="btn btn-xs btn-outline" onclick="removeGroup(${i})" style="margin-left:auto">删除组</button>
+      </div>
+      <div class="group-members">
+        ${g.members.length === 0 ? '<span class="empty-hint">从下方拖拽或点击人名分配</span>' :
+          g.members.map(n => `<span class="tag">${n}<span class="remove" onclick="moveToGroup('${n}',-1)">×</span></span>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  renderUnassignedPool(assigned);
+}
+
+function moveToGroup(name, gIdx) {
+  // Remove from all groups
+  state.groups.forEach(g => { g.members = g.members.filter(n => n !== name); });
+  // gIdx = -1 means just remove (don't add to any group)
+  if (gIdx >= 0) {
+    // Conflict check: cannot join a group that already has someone in "apart" rule with this person
+    for (const apartGroup of state.rules.apart) {
+      if (!apartGroup.includes(name)) continue;
+      for (const other of apartGroup) {
+        if (other !== name && state.groups[gIdx].members.includes(other)) {
+          toast(`「${name}」和「${other}」已设为禁止同座，不能放入同一组「${state.groups[gIdx].name}」`, 'error');
+          renderGroupCards(); renderApartPool(); saveState();
+          return;
+        }
+      }
+    }
+    if (!state.groups[gIdx].members.includes(name)) state.groups[gIdx].members.push(name);
+  }
+  renderGroupCards(); renderApartPool(); saveState();
+}
+
+function renderUnassignedPool(assigned) {
+  const div = document.getElementById('unassignedPool');
+  const unassigned = state.names.filter(n => !assigned.has(n.name));
+  if (unassigned.length === 0) {
+    div.innerHTML = '<span style="color:var(--gray-400);font-size:12px">所有人都已分配</span>'; return;
+  }
+  div.innerHTML = unassigned.map(n => {
+    const groupOpts = state.groups.map((g,i) => `<option value="${i}">${g.name}</option>`).join('');
+    return `<span class="tag" style="display:inline-flex;align-items:center;gap:4px">
+      ${n.name}
+      <select style="font-size:10px;padding:1px 3px;border:1px solid var(--gray-300);border-radius:3px" onchange="moveToGroup('${n.name}',parseInt(this.value))">
+        <option value="">加入...</option>${groupOpts}
+      </select>
+    </span>`;
+  }).join('');
+}
+
+// Apart rules
+function renderApartPool() {
+  const div = document.getElementById('apartPool');
+  const assigned = new Set(state.groups.flatMap(g => g.members));
+  div.innerHTML = state.names.map(n => {
+    const sel = state.selectedInPool.includes(n.name);
+    return `<span class="tag clickable ${sel?'selected':''}" onclick="toggleApartSelect('${n.name}')">${n.name}</span>`;
+  }).join('');
+}
+
+function toggleApartSelect(name) {
+  const idx = state.selectedInPool.indexOf(name);
+  if (idx >= 0) state.selectedInPool.splice(idx, 1);
+  else state.selectedInPool.push(name);
+  renderApartPool();
+}
+
+function addApartRule() {
+  if (state.selectedInPool.length < 2) { toast('至少选中2个人', 'error'); return; }
+  // Conflict check: people in the same group cannot be in an apart rule
+  const selected = [...state.selectedInPool];
+  for (let i = 0; i < selected.length; i++) {
+    for (let j = i + 1; j < selected.length; j++) {
+      for (const g of state.groups) {
+        if (g.members.includes(selected[i]) && g.members.includes(selected[j])) {
+          toast(`「${selected[i]}」和「${selected[j]}」都在「${g.name}」中，同组人不能设为禁止同座`, 'error');
+          return;
+        }
+      }
+    }
+  }
+  state.rules.apart.push(selected);
+  state.selectedInPool = [];
+  renderApartPool(); renderApartRules(); saveState();
+  toast('已添加禁止同座规则');
+}
+
+function renderApartRules() {
+  document.getElementById('apartRules').innerHTML = state.rules.apart.map((group, i) =>
+    `<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--gray-50);border-radius:6px;margin-bottom:4px;font-size:13px">
+      <span style="background:#fecaca;color:#991b1b;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600">隔离</span>
+      ${group.join('、')}
+      <button class="btn btn-xs btn-outline" onclick="state.rules.apart.splice(${i},1);renderApartRules();saveState()" style="margin-left:auto">删除</button>
+    </div>`
+  ).join('');
+}
+
+// Fixed seat rules
+function renderFixedRules() {
+  document.getElementById('fixedRules').innerHTML = state.rules.fixed.map((f, i) =>
+    `<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--gray-50);border-radius:6px;margin-bottom:4px;font-size:13px">
+      <span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600">固定</span>
+      ${f.name} → R${f.r+1}C${f.c+1}
+      <button class="btn btn-xs btn-outline" onclick="state.rules.fixed.splice(${i},1);renderFixedRules();saveState()" style="margin-left:auto">删除</button>
+    </div>`
+  ).join('');
+}
+
+let pendingFixedName = '';
+
+function openFixedSeatPicker() {
+  document.getElementById('fixedSeatModal').classList.add('show');
+  const sel = document.getElementById('fixedPickPerson');
+  sel.innerHTML = '<option value="">请选择人名</option>' + state.names.map(n => `<option>${n.name}</option>`).join('');
+  pendingFixedName = '';
+  renderFixedSeatGrid();
+  sel.onchange = function() {
+    pendingFixedName = this.value;
+    renderFixedSeatGrid();
+  };
+}
+
+function closeFixedSeatPicker() {
+  document.getElementById('fixedSeatModal').classList.remove('show');
+  pendingFixedName = '';
+}
+
+function renderFixedSeatGrid() {
+  const container = document.getElementById('fixedSeatGrid');
+  const seats = state.layout.seats;
+  if (seats.length === 0) { container.innerHTML = '<span style="color:var(--gray-400)">请先在第二步设置座位表</span>'; return; }
+  const maxR = Math.max(...seats.map(s => s.r)) + 1;
+  const maxC = Math.max(...seats.map(s => s.c)) + 1;
+  const occupied = new Set(state.rules.fixed.map(f => f.r + ',' + f.c));
+
+  let html = '<table class="grid-table"><tbody>';
+  for (let r = 0; r < maxR; r++) {
+    html += '<tr>';
+    for (let c = 0; c < maxC; c++) {
+      const seat = seats.find(s => s.r === r && s.c === c);
+      const isSeat = seat && seat.isSeat;
+      const key = r + ',' + c;
+      const occ = occupied.has(key);
+      let bg = 'white';
+      if (!isSeat) bg = 'var(--gray-200)';
+      else if (occ) bg = '#fecaca';
+      const onClick = (isSeat && !occ) ? `onclick="pickFixedSeat(${r},${c})"` :
+        (occ ? `onclick="unpickFixedSeat(${r},${c})"` : '');
+      html += `<td style="background:${bg};cursor:${isSeat?'pointer':'default'};width:56px;height:36px;font-size:10px" ${onClick}>
+        ${occ ? state.rules.fixed.find(f=>f.r===r&&f.c===c)?.name||'占' : (isSeat ? '空' : '')}
+      </td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function pickFixedSeat(r, c) {
+  if (!pendingFixedName) { toast('请先选择人名', 'error'); return; }
+  // Remove existing fixed seat for this person
+  state.rules.fixed = state.rules.fixed.filter(f => f.name !== pendingFixedName);
+  // Remove existing assignment for this seat
+  state.rules.fixed = state.rules.fixed.filter(f => !(f.r === r && f.c === c));
+  state.rules.fixed.push({ name: pendingFixedName, r, c });
+  renderFixedSeatGrid(); renderFixedRules();
+  toast(pendingFixedName + ' 已固定到 R' + (r+1) + 'C' + (c+1));
+}
+
+function unpickFixedSeat(r, c) {
+  state.rules.fixed = state.rules.fixed.filter(f => !(f.r === r && f.c === c));
+  renderFixedSeatGrid(); renderFixedRules();
+}
+
+function confirmFixedSeat() {
+  closeFixedSeatPicker();
+  renderFixedRules();
+  saveState();
+}
+
+// ==================== STEP 4: ARRANGE ====================
+function autoArrange() {
+  if (state.names.length === 0) { toast('请先导入名单', 'error'); return; }
+  const seats = state.layout.seats.filter(s => s.isSeat);
+  if (seats.length === 0) { toast('请先设置座位表', 'error'); return; }
+  if (seats.length < state.names.length) {
+    toast('座位数不足！名单 ' + state.names.length + ' 人，座位 ' + seats.length + ' 个', 'error'); return;
+  }
+
+  const maxR = state.layout.rows || (Math.max(...seats.map(s => s.r)) + 1);
+  const maxC = state.layout.cols || (Math.max(...seats.map(s => s.c)) + 1);
+  const result = Array.from({length: maxR}, () => Array.from({length: maxC}, () => null));
+  const usedSeats = new Set();
+  const allNames = [...state.names];
+
+  // Phase 1: Fixed seats
+  state.rules.fixed.forEach(f => {
+    const person = allNames.find(n => n.name === f.name);
+    if (person && !result[f.r]?.[f.c]) {
+      result[f.r][f.c] = {...person};
+      usedSeats.add(f.r + ',' + f.c);
+    }
+  });
+
+  // Phase 2: Group placement — priority: same row > adjacent rows close > compact cluster
+  const placed = new Set(state.rules.fixed.map(f => f.name));
+  const adjOffsets = [[0,1],[0,-1],[1,0],[-1,0]];
+
+  function getEmptySeats(zoneFilter) {
+    return seats.filter(s => {
+      if (usedSeats.has(s.r + ',' + s.c)) return false;
+      if (zoneFilter && !zoneFilter.includes(s.zone || '__unzoned__')) return false;
+      return true;
+    });
+  }
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  state.groups.forEach(group => {
+    // Find both unplaced members and already-fixed members of this group
+    const unplacedMembers = group.members.filter(n => !placed.has(n));
+    const fixedMembers = group.members.filter(n => placed.has(n));
+    if (unplacedMembers.length === 0) return;
+
+    // Find positions of fixed group members (anchors)
+    const anchorPositions = [];
+    fixedMembers.forEach(name => {
+      for (let r = 0; r < maxR; r++)
+        for (let c = 0; c < maxC; c++)
+          if (result[r]?.[c]?.name === name)
+            anchorPositions.push({r, c});
+    });
+
+    // Determine zone filter from group binding OR from where fixed members sit
+    const bindZone = group.zoneBind;
+    let zoneFilter = bindZone ? [bindZone] : null;
+    // Also include zones where fixed members sit
+    if (!zoneFilter && anchorPositions.length > 0) {
+      const anchorZones = new Set(anchorPositions.map(a => {
+        const seat = state.layout.seats.find(s => s.r === a.r && s.c === a.c);
+        return seat?.zone || '__unzoned__';
+      }).filter(z => z !== '__unzoned__'));
+      if (anchorZones.size > 0) zoneFilter = [...anchorZones];
+    }
+
+    let targetPool = getEmptySeats(zoneFilter);
+    if (targetPool.length === 0 && zoneFilter) {
+      targetPool = getEmptySeats(null);
+    }
+
+    const N = unplacedMembers.length;
+    const people = shuffle([...unplacedMembers].map(n => allNames.find(p => p.name === n)).filter(Boolean));
+    if (people.length === 0) return;
+
+    let placedGroup = false;
+
+    // Build a "proximity score" for each empty seat: closer to anchors = better
+    function proximityScore(seat) {
+      if (anchorPositions.length === 0) return 0;
+      let minDist = Infinity;
+      anchorPositions.forEach(a => {
+        const dist = Math.abs(seat.r - a.r) + Math.abs(seat.c - a.c);
+        if (dist < minDist) minDist = dist;
+      });
+      return minDist;
+    }
+
+    // Sort targetPool by proximity to anchors (closer first), then by row
+    const poolWithScore = targetPool.map(s => ({ seat: s, score: proximityScore(s) }));
+    poolWithScore.sort((a, b) => a.score - b.score || a.seat.r - b.seat.r || a.seat.c - b.seat.c);
+    targetPool = poolWithScore.map(p => p.seat);
+
+    // Strategy 1: Find a single row with N consecutive empty seats, prefer rows with anchors
+    const byRow = {};
+    targetPool.forEach(s => {
+      if (!byRow[s.r]) byRow[s.r] = [];
+      byRow[s.r].push(s);
+    });
+    // Priority: rows that have fixed members first, then by seat count
+    const anchorRows = new Set(anchorPositions.map(a => a.r));
+    const rowKeys = shuffle(Object.keys(byRow).map(Number))
+      .sort((a, b) => (anchorRows.has(b) ? 1 : 0) - (anchorRows.has(a) ? 1 : 0) || byRow[b].length - byRow[a].length);
+
+    for (const r of rowKeys) {
+      const rowSeats = byRow[r].sort((a,b) => a.c - b.c);
+      for (let start = 0; start <= rowSeats.length - N; start++) {
+        const window = rowSeats.slice(start, start + N);
+        const consecutive = window.every((s, i) => i === 0 || s.c === window[i-1].c + 1);
+        if (consecutive) {
+          for (let k = 0; k < N; k++) {
+            const s = window[k];
+            result[s.r][s.c] = people[k];
+            usedSeats.add(s.r + ',' + s.c);
+            placed.add(people[k].name);
+          }
+          placedGroup = true;
+          break;
+        }
+      }
+      if (placedGroup) break;
+    }
+
+    // Strategy 2: Best effort same row, prefer proximity to anchors
+    if (!placedGroup) {
+      for (const r of rowKeys) {
+        const rowSeats = byRow[r].sort((a,b) => a.c - b.c);
+        if (rowSeats.length < N) continue;
+        let bestWindow = null, bestScore = Infinity;
+        for (let start = 0; start <= rowSeats.length - N; start++) {
+          const window = rowSeats.slice(start, start + N);
+          const spread = window[N-1].c - window[0].c;
+          // Score: spread + average distance to nearest anchor
+          const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
+          const score = spread * 10 + avgProx;
+          if (score < bestScore) { bestScore = score; bestWindow = window; }
+        }
+        if (bestWindow) {
+          for (let k = 0; k < N; k++) {
+            const s = bestWindow[k];
+            result[s.r][s.c] = people[k];
+            usedSeats.add(s.r + ',' + s.c);
+            placed.add(people[k].name);
+          }
+          placedGroup = true;
+          break;
+        }
+      }
+    }
+
+    // Strategy 3: BFS from anchors outward (key fix: start from fixed members!)
+    if (!placedGroup) {
+      let bestCluster = null, bestScore = Infinity;
+
+      // If we have anchors, start BFS from them
+      const startPoints = anchorPositions.length > 0
+        ? anchorPositions.map(a => targetPool.find(s => s.r === a.r && s.c === a.c && !usedSeats.has(s.r+','+s.c))).filter(Boolean)
+        : shuffle([...targetPool]);
+
+      if (startPoints.length === 0) startPoints.push(...shuffle([...targetPool]).slice(0, 5));
+
+      for (const start of shuffle([...startPoints]).slice(0, 30)) {
+        if (!start) continue;
+        const cluster = [start];
+        const clusterSet = new Set([start.r + ',' + start.c]);
+        const queue = [start];
+        while (queue.length > 0 && cluster.length < N) {
+          const cur = queue.shift();
+          const rowNeighbors = [[0,1],[0,-1]];
+          const colNeighbors = [[1,0],[-1,0]];
+          const allNeighbors = shuffle([
+            ...rowNeighbors.map(([dr,dc]) => ({dr,dc,prio:0})),
+            ...colNeighbors.map(([dr,dc]) => ({dr,dc,prio:1}))
+          ]).sort((a,b) => a.prio - b.prio);
+          for (const {dr, dc} of allNeighbors) {
+            const nr = cur.r + dr, nc = cur.c + dc;
+            const k = nr + ',' + nc;
+            if (clusterSet.has(k)) continue;
+            const seat = targetPool.find(s => s.r === nr && s.c === nc && !clusterSet.has(k));
+            if (seat) { clusterSet.add(k); cluster.push(seat); queue.push(seat); if (cluster.length>=N) break; }
+          }
+        }
+        if (cluster.length >= N) {
+          const rs = cluster.map(s=>s.r), cs = cluster.map(s=>s.c);
+          const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
+          if (score < bestScore) { bestScore = score; bestCluster = [...cluster]; }
+        }
+      }
+
+      if (bestCluster) {
+        for (let k = 0; k < N; k++) {
+          const s = bestCluster[k];
+          result[s.r][s.c] = people[k];
+          usedSeats.add(s.r + ',' + s.c);
+          placed.add(people[k].name);
+        }
+        placedGroup = true;
+      }
+    }
+
+    // Strategy 4: Fallback — compact cluster from all seats
+    if (!placedGroup) {
+      targetPool = getEmptySeats(null);
+      if (targetPool.length >= N) {
+        const sorted = targetPool.sort((a,b) => proximityScore(a) - proximityScore(b) || a.r - b.r || a.c - b.c);
+        let bestCluster = sorted.slice(0, N);
+        let bestScore = Infinity;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const start = sorted[Math.floor(Math.random() * Math.min(sorted.length, Math.max(1, sorted.length - N)))];
+          const cluster = [start];
+          const clusterSet = new Set([start.r + ',' + start.c]);
+          const queue = [start];
+          while (queue.length > 0 && cluster.length < N) {
+            const cur = queue.shift();
+            for (const [dr,dc] of shuffle([...adjOffsets])) {
+              const nr = cur.r+dr, nc = cur.c+dc;
+              const k = nr+','+nc;
+              if (clusterSet.has(k)) continue;
+              const seat = targetPool.find(s => s.r===nr && s.c===nc && !clusterSet.has(k));
+              if (seat) { clusterSet.add(k); cluster.push(seat); queue.push(seat); if (cluster.length>=N) break; }
+            }
+          }
+          if (cluster.length >= N) {
+            const rs = cluster.map(s=>s.r), cs = cluster.map(s=>s.c);
+            const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs)) + proximityScore(cluster[0])*100;
+            if (score < bestScore) { bestScore = score; bestCluster = [...cluster]; }
+          }
+        }
+        for (let k = 0; k < N; k++) {
+          const s = bestCluster[k];
+          result[s.r][s.c] = people[k];
+          usedSeats.add(s.r + ',' + s.c);
+          placed.add(people[k].name);
+        }
+      }
+    }
+  });
+
+  // Phase 3: Place unassigned people
+  const remaining = allNames.filter(n => !placed.has(n.name));
+  shuffle(remaining);
+  const emptySeats = shuffle(seats.filter(s => !usedSeats.has(s.r + ',' + s.c)));
+  let si = 0;
+  remaining.forEach(person => {
+    while (si < emptySeats.length && usedSeats.has(emptySeats[si].r + ',' + emptySeats[si].c)) si++;
+    if (si < emptySeats.length) {
+      const s = emptySeats[si];
+      result[s.r][s.c] = person;
+      usedSeats.add(s.r + ',' + s.c);
+      si++;
+    }
+  });
+
+  // Phase 4: Resolve apart conflicts
+  state.rules.apart.forEach(group => {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        let aPos = null, bPos = null;
+        for (let r = 0; r < maxR; r++) for (let c = 0; c < maxC; c++) {
+          if (result[r]?.[c]?.name === group[i]) aPos = {r,c};
+          if (result[r]?.[c]?.name === group[j]) bPos = {r,c};
+        }
+        if (!aPos || !bPos) continue;
+        if (Math.abs(aPos.r-bPos.r) <= 1 && Math.abs(aPos.c-bPos.c) <= 1) {
+          const safeSeats = shuffle(seats.filter(s => {
+            const cell = result[s.r]?.[s.c];
+            if (cell && cell.name !== group[j]) return false;
+            // Must be far from all group members
+            for (let k = 0; k < group.length; k++) {
+              if (k === j) continue;
+              let kPos = null;
+              for (let rr = 0; rr < maxR; rr++) for (let cc = 0; cc < maxC; cc++) {
+                if (result[rr]?.[cc]?.name === group[k]) kPos = {r:rr,c:cc};
+              }
+              if (kPos && Math.abs(kPos.r-s.r) <= 1 && Math.abs(kPos.c-s.c) <= 1) return false;
+            }
+            return true;
+          }));
+          if (safeSeats.length > 0) {
+            const sw = safeSeats[0];
+            if (!result[sw.r]?.[sw.c]) {
+              result[sw.r][sw.c] = result[bPos.r][bPos.c];
+              result[bPos.r][bPos.c] = null;
+            } else {
+              const temp = result[bPos.r][bPos.c];
+              result[bPos.r][bPos.c] = result[sw.r][sw.c];
+              result[sw.r][sw.c] = temp;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  state.result = result;
+  renderResult();
+  saveState();
+  document.getElementById('arrangeStatus').style.display = 'none';
+  document.getElementById('resultGrid').style.display = '';
+  toast('排座完成！拖拽人名可交换位置');
+}
+
+function renderResult() {
+  if (!state.result) return;
+  const grid = state.result;
+  const maxR = grid.length;
+  const maxC = Math.max(...grid.map(r => r.length));
+  const groupNames = state.groups.map(g => g.name);
+
+  let html = '<table class="grid-table result-grid-table"><tbody>';
+  for (let r = 0; r < maxR; r++) {
+    html += '<tr>';
+    for (let c = 0; c < maxC; c++) {
+      const cell = grid[r]?.[c];
+      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+      if (!seatExists) {
+        html += '<td style="background:var(--gray-200)"></td>';
+      } else if (cell && cell.name) {
+        const gIdx = cell.group ? groupNames.indexOf(cell.group) : -1;
+        const cls = gIdx >= 0 ? 'group-' + (gIdx % 8) : '';
+        html += `<td class="filled ${cls}" draggable="true"
+          data-r="${r}" data-c="${c}" data-name="${cell.name}"
+          onclick="if(isMobile)handleResultTap(event)"
+          ondragstart="dragResultStart(event)" ondragover="dragResultOver(event)" ondragleave="dragResultLeave(event)" ondrop="dragResultDrop(event)" ondragend="dragResultEnd(event)">
+          ${cell.name}</td>`;
+      } else {
+        html += `<td class="empty" data-r="${r}" data-c="${c}"
+          onclick="if(isMobile)handleResultTap(event)"
+          ondragover="dragResultOver(event)" ondragleave="dragResultLeave(event)" ondrop="dragResultDrop(event)">空</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById('resultGrid').innerHTML = html;
+
+  const total = state.names.length;
+  const placed = grid.flat().filter(c => c && c.name).length;
+  document.getElementById('arrangeStats').textContent =
+    `已排 ${placed}/${total} 人${total - placed > 0 ? '，' + (total-placed) + ' 人因座位不足未排入' : '，全部排完'}｜可拖拽人名交换位置`;
+}
+
+// Drag & drop for result grid
+let dragSource = null;
+let tapSelected = null; // For mobile tap-to-swap
+
+function dragResultStart(e) {
+  if (isMobile) return; // On mobile, use tap-to-swap instead
+  dragSource = { r: parseInt(e.target.dataset.r), c: parseInt(e.target.dataset.c), name: e.target.dataset.name };
+  e.target.classList.add('drag-source');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragSource.r + ',' + dragSource.c);
+}
+
+function dragResultOver(e) {
+  e.preventDefault();
+  if (isMobile) return;
+  const td = e.target.closest('td');
+  if (!td) return;
+  const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
+  if (state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat)) {
+    td.classList.add('drag-over');
+  }
+}
+
+function dragResultLeave(e) {
+  if (isMobile) return;
+  const td = e.target.closest('td');
+  if (td) td.classList.remove('drag-over');
+}
+
+function dragResultDrop(e) {
+  e.preventDefault();
+  if (isMobile) return;
+  const td = e.target.closest('td');
+  if (!td) return;
+  td.classList.remove('drag-over');
+  swapResultCells(td);
+}
+
+function dragResultEnd(e) {
+  document.querySelectorAll('.result-grid-table td').forEach(td => td.classList.remove('drag-over', 'drag-source'));
+  if (!isMobile) dragSource = null;
+}
+
+// Mobile tap-to-swap: first tap selects, second tap swaps
+function handleResultTap(e) {
+  if (!isMobile) return;
+  const td = e.target.closest('td');
+  if (!td) return;
+  const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
+  const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+  if (!seatExists) return;
+
+  if (!tapSelected) {
+    // First tap: select source
+    const cell = state.result[r]?.[c];
+    if (!cell || !cell.name) { toast('请点击一个已排人的座位'); return; }
+    tapSelected = { r, c, name: cell.name };
+    td.classList.add('tap-selected');
+    toast('已选中「' + cell.name + '」，再点击目标座位交换');
+  } else if (tapSelected.r === r && tapSelected.c === c) {
+    // Tap same cell: deselect
+    td.classList.remove('tap-selected');
+    tapSelected = null;
+    toast('已取消选择');
+  } else {
+    // Second tap: swap
+    const targetCell = state.result[r]?.[c];
+    // Swap
+    const src = state.result[tapSelected.r]?.[tapSelected.c];
+    const dst = state.result[r]?.[c];
+    if (state.result[r]?.[c] !== undefined && src) {
+      state.result[tapSelected.r][tapSelected.c] = dst;
+      state.result[r][c] = src;
+      document.querySelectorAll('.result-grid-table td.tap-selected').forEach(td => td.classList.remove('tap-selected'));
+      tapSelected = null;
+      renderResult();
+      saveState();
+      toast('已交换座位');
+    }
+  }
+}
+
+function swapResultCells(td) {
+  if (!td) return;
+  const tr = parseInt(td.dataset.r), tc = parseInt(td.dataset.c);
+  if (!dragSource) return;
+  const srcCell = state.result[dragSource.r]?.[dragSource.c];
+  const dstCell = state.result[tr]?.[tc];
+  if (state.result[tr]?.[tc] !== undefined && srcCell) {
+    state.result[dragSource.r][dragSource.c] = dstCell;
+    state.result[tr][tc] = srcCell;
+    renderResult();
+    saveState();
+    toast('已交换座位');
+  }
+}
+
+// ==================== EXPORT ====================
+function exportExcel() {
+  if (!state.result) { toast('请先排座', 'error'); return; }
+  const grid = state.result;
+  const rows = [];
+  for (let r = 0; r < grid.length; r++) {
+    const row = [];
+    for (let c = 0; c < (grid[r]?.length || 0); c++) {
+      const cell = grid[r]?.[c];
+      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+      if (!seatExists) row.push('');
+      else if (cell && cell.name) row.push(cell.name + (cell.group ? ' [' + cell.group + ']' : ''));
+      else row.push('空');
+    }
+    rows.push(row);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '座位表');
+  XLSX.writeFile(wb, '座位表.xlsx');
+  toast('已导出座位表.xlsx', 'success');
+}
+
+function exportCSV() {
+  if (!state.result) { toast('请先排座', 'error'); return; }
+  const grid = state.result;
+  let csv = '';
+  for (let r = 0; r < grid.length; r++) {
+    const row = [];
+    for (let c = 0; c < (grid[r]?.length || 0); c++) {
+      const cell = grid[r]?.[c];
+      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+      if (!seatExists) row.push('');
+      else if (cell && cell.name) row.push(cell.name + (cell.group ? ' [' + cell.group + ']' : ''));
+      else row.push('空');
+    }
+    csv += row.join(',') + '\n';
+  }
+  const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '座位表.csv'; a.click();
+  toast('已导出座位表.csv', 'success');
+}
+
+// ==================== SAVE / LOAD ====================
+function saveToFile() {
+  const json = JSON.stringify(state, null, 2);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], {type: 'application/json'}));
+  a.download = '排座项目_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  toast('项目已保存');
+}
+
+function loadFromFile(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      state = JSON.parse(e.target.result);
+      if (!state.groups || state.groups.length === 0) state.groups = DEFAULT_STATE.groups.map(g => ({...g, members: []}));
+      if (!state.zoneProps) state.zoneProps = {};
+      if (!state.selectedInPool) state.selectedInPool = [];
+      updateNamePreview(); renderGridEditor(); renderFixedRules();
+      if (state.result) { document.getElementById('arrangeStatus').style.display='none'; document.getElementById('resultGrid').style.display=''; renderResult(); }
+      saveState(); toast('项目已加载');
+    } catch(err) { toast('文件格式不正确', 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+function resetAll() {
+  if (!confirm('确定要重置所有数据吗？')) return;
+  state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  document.getElementById('nameTextarea').value = '';
+  updateNamePreview();
+  document.getElementById('gridEditor').innerHTML = '<span style="color:var(--gray-400)">还没有座位表</span>';
+  document.getElementById('resultGrid').innerHTML = ''; document.getElementById('resultGrid').style.display = 'none';
+  document.getElementById('arrangeStatus').style.display = '';
+  document.getElementById('zoneManager').style.display = 'none';
+  document.getElementById('batchToolbar').classList.remove('show');
+  multiSelected.clear();
+  localStorage.removeItem('seat-arranger-v2');
+  toast('已重置');
+}
+
+// ==================== INIT ====================
+function init() {
+  if (state.names.length > 0) updateNamePreview();
+  if (state.layout.seats.length > 0) renderGridEditor();
+  if (state.result) { document.getElementById('arrangeStatus').style.display='none'; document.getElementById('resultGrid').style.display=''; renderResult(); }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+}
+init();
+</script>
+</body>
+</html>
