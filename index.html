@@ -574,6 +574,9 @@ function handlePtrDown(r, c, e) {
   ptrIsTouch = (e.pointerType === 'touch');
   if (ptrIsTouch && !selectMode) return; // Touch only works in select mode
   e.preventDefault();
+  // Capture pointer so we get move/up events even outside the grid
+  const grid = document.getElementById('gridEditor');
+  if (grid) grid.setPointerCapture(e.pointerId);
   ptrDown = true; ptrMoved = false;
   ptrStart = {r, c}; ptrEnd = {r, c};
   ptrHandledBySelect = false;
@@ -598,6 +601,9 @@ function handlePtrMove(e) {
 function handlePtrUp(e) {
   if (!ptrDown) return;
   ptrDown = false;
+  // Release pointer capture
+  const grid = document.getElementById('gridEditor');
+  if (grid && grid.hasPointerCapture(e.pointerId)) grid.releasePointerCapture(e.pointerId);
 
   if (!ptrMoved) {
     // It was a tap, not a drag
