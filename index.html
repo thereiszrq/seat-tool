@@ -525,6 +525,7 @@ function renderGridEditor() {
       const label = seat ? (seat.label || (isSeat ? '' : '')) : '';
       html += `<td class="${cls.join(' ')}" data-r="${r}" data-c="${c}"
         onmousedown="onGridMouseDown(${r},${c},event)"
+        ontouchstart="onGridTouchStart(${r},${c},event)"
         onmouseover="onGridMouseOver(${r},${c},event)"
         onclick="onGridClick(${r},${c},event)">${zoneTag}${groupTag}<span class="seat-label">${label}</span></td>`;
     }
@@ -544,7 +545,7 @@ function toggleSelectMode() {
   if (selectMode) {
     btn.textContent = '✅ 选择中';
     btn.style.background = 'var(--warning)'; btn.style.color = '#000'; btn.style.border = 'none';
-    hint.textContent = '点击座位多选，工具栏批量操作';
+    hint.textContent = '拖拽圈选 | 点击单选';
   } else {
     btn.textContent = '🖐 选择模式';
     btn.style.background = ''; btn.style.color = ''; btn.style.border = '';
@@ -553,12 +554,22 @@ function toggleSelectMode() {
   }
 }
 
-// Grid interaction — works for both desktop drag & click
+// Grid interaction — desktop drag + mobile touch circle-select
 let isDragging = false, dragStart = null, dragEnd = null;
 let hasMoved = false;
 let ctrlOnDrag = false;
+let isTouchDrag = false;
+
+function findCellFromPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  const td = el.closest('td[data-r][data-c]');
+  if (!td) return null;
+  return { r: parseInt(td.dataset.r), c: parseInt(td.dataset.c) };
+}
 
 function onGridMouseDown(r, c, e) {
+  if (isTouchDrag) return;
   e.preventDefault();
   isDragging = true;
   hasMoved = false;
@@ -566,23 +577,44 @@ function onGridMouseDown(r, c, e) {
   ctrlOnDrag = e.ctrlKey || e.metaKey;
 }
 
+function onGridTouchStart(r, c, e) {
+  if (!selectMode) return; // Only circle-select in select mode
+  e.preventDefault();
+  isDragging = true;
+  isTouchDrag = true;
+  hasMoved = false;
+  dragStart = {r, c}; dragEnd = {r, c};
+  ctrlOnDrag = false;
+}
+
 function onGridMouseOver(r, c, e) {
-  if (!isDragging) return;
+  if (!isDragging || isTouchDrag) return;
   hasMoved = true;
   dragEnd = {r, c};
   highlightDragSelection();
 }
 
-document.addEventListener('mouseup', () => {
+// Global touchmove for circle-select in select mode
+document.addEventListener('touchmove', function(e) {
+  if (!isDragging || !isTouchDrag) return;
+  e.preventDefault();
+  hasMoved = true;
+  const cell = findCellFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+  if (cell) {
+    dragEnd = cell;
+    highlightDragSelection();
+  }
+}, { passive: false });
+
+function finishDrag() {
   if (!isDragging) return;
   isDragging = false;
 
-  if (!hasMoved) { dragStart = dragEnd = null; return; }
+  if (!hasMoved) { dragStart = dragEnd = null; isTouchDrag = false; return; }
 
   const r1 = Math.min(dragStart.r, dragEnd.r), r2 = Math.max(dragStart.r, dragEnd.r);
   const c1 = Math.min(dragStart.c, dragEnd.c), c2 = Math.max(dragStart.c, dragEnd.c);
 
-  // Drag = circle-select (Ctrl keeps existing, no-Ctrl replaces)
   const newSel = new Set(ctrlOnDrag ? [...multiSelected] : []);
   for (let rr = r1; rr <= r2; rr++)
     for (let cc = c1; cc <= c2; cc++)
@@ -591,10 +623,18 @@ document.addEventListener('mouseup', () => {
   renderGridEditor();
   document.getElementById('zoneName').value = '';
   dragStart = dragEnd = null;
+  isTouchDrag = false;
+}
+
+document.addEventListener('mouseup', finishDrag);
+document.addEventListener('touchend', function(e) {
+  if (!isTouchDrag) return;
+  finishDrag();
 });
 
 function onGridClick(r, c, e) {
-  if (hasMoved) { hasMoved = false; return; }
+  if (hasMoved) { hasMoved = false; isTouchDrag = false; return; }
+  if (isTouchDrag) { isTouchDrag = false; return; }
 
   // Select mode: clicks = multi-select toggle
   if (selectMode) {
