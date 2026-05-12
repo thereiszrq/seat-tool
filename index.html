@@ -75,7 +75,8 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
 .grid-table td{width:var(--grid-cell);height:var(--grid-cell-h);text-align:center;border:1px solid var(--gray-300);font-size:var(--grid-font);cursor:pointer;position:relative;transition:background .1s;background:white;user-select:none;-webkit-user-select:none;padding:2px}
 .grid-table td:active{background:#eef2ff}
 .grid-table td.selected-multi{background:#dbeafe !important;border-color:var(--primary) !important;box-shadow:inset 0 0 0 2px var(--primary)}
-.grid-table td.aisle{background:var(--gray-200);cursor:default;color:transparent}
+.grid-table td.aisle{background:#d1d5db;cursor:pointer;color:transparent;background-image:repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,.06) 3px,rgba(0,0,0,.06) 6px)}
+.grid-table td.blocked{background:#fee2e2;cursor:pointer;color:var(--gray-400);font-size:9px}
 .grid-table td .seat-label{font-size:10px;color:var(--gray-500);pointer-events:none}
 .grid-table td .zone-tag{position:absolute;top:1px;right:2px;font-size:8px;background:var(--warning);color:white;padding:0 3px;border-radius:2px;font-weight:700;pointer-events:none}
 .grid-table td .group-tag{position:absolute;bottom:1px;left:2px;font-size:8px;background:var(--success);color:white;padding:0 3px;border-radius:2px;pointer-events:none}
@@ -240,8 +241,9 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   <!-- Batch toolbar -->
   <div class="batch-toolbar" id="batchToolbar">
     <span id="batchCount">已选 0 座</span>
-    <button class="btn btn-sm" style="background:white;color:var(--gray-800)" onclick="batchSetSeat(true)">设为可坐</button>
-    <button class="btn btn-sm" style="background:var(--gray-400);color:white" onclick="batchSetSeat(false)">设为过道</button>
+    <button class="btn btn-sm" style="background:white;color:var(--gray-800)" onclick="batchSetType('seat')">可坐</button>
+    <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="batchSetType('blocked')">不能坐</button>
+    <button class="btn btn-sm" style="background:var(--gray-400);color:white" onclick="batchSetType('aisle')">过道</button>
     <select id="batchGroup" style="padding:4px 8px;border-radius:4px;border:none;font-size:12px">
       <option value="">分配到分组...</option>
     </select>
@@ -251,7 +253,7 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   </div>
 
   <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px">
-    💡 <b>拖拽</b>圈选 | <b>Ctrl+点击</b>多选 | <b>Shift+点击</b>范围选
+    💡 <b>拖拽</b>圈选 | <b>Ctrl+点击</b>多选 | <b>Shift+点击</b>范围选 | 点击座位循环：<b>可坐→不能坐→过道</b>
     <button class="btn btn-xs btn-outline" id="mobileSelectBtn" onclick="toggleSelectMode()" style="margin-left:8px">🖐 选择模式</button>
     <span id="selectModeHint" style="font-size:11px;color:var(--warning);margin-left:4px;font-weight:500"></span>
   </div>
@@ -486,7 +488,7 @@ function createManualGrid() {
   const cols = parseInt(document.getElementById('manualCols').value) || 10;
   state.layout = { rows, cols, seats: [] };
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-    state.layout.seats.push({ r, c, label: '', zone: '', isSeat: true, groupBind: '' });
+    state.layout.seats.push({ r, c, label: '', zone: '', type: 'seat', groupBind: '' });
   }
   state.zones = {}; state.zoneProps = {}; multiSelected.clear();
   renderGridEditor(); saveState();
@@ -504,7 +506,7 @@ function renderGridEditor() {
   }
   const maxR = Math.max(...seats.map(s => s.r)) + 1;
   const maxC = Math.max(...seats.map(s => s.c)) + 1;
-  document.getElementById('seatCount').textContent = seats.filter(s => s.isSeat).length;
+  document.getElementById('seatCount').textContent = seats.filter(s => (s.type||'seat')==='seat').length;
   document.getElementById('zoneManager').style.display = '';
   updateBatchToolbar();
 
@@ -513,16 +515,17 @@ function renderGridEditor() {
     html += '<tr>';
     for (let c = 0; c < maxC; c++) {
       const seat = seats.find(s => s.r === r && s.c === c);
-      const isSeat = seat && seat.isSeat;
+      const type = seat ? (seat.type || 'seat') : 'seat';
       const zone = seat ? seat.zone : '';
       const gb = seat ? seat.groupBind : '';
       const key = r + ',' + c;
       let cls = [];
-      if (!isSeat) cls.push('aisle');
+      if (type === 'aisle') cls.push('aisle');
+      else if (type === 'blocked') cls.push('blocked');
       if (multiSelected.has(key)) cls.push('selected-multi');
       const zoneTag = zone ? `<span class="zone-tag">${zone.substring(0,2)}</span>` : '';
       const groupTag = gb ? `<span class="group-tag">${gb}</span>` : '';
-      const label = seat ? (seat.label || (isSeat ? '' : '')) : '';
+      const label = seat ? (seat.label || (type === 'seat' ? '' : (type==='blocked'?'✕':''))) : '';
       html += `<td class="${cls.join(' ')}" data-r="${r}" data-c="${c}"
         onclick="onGridClick(${r},${c},event)">${zoneTag}${groupTag}<span class="seat-label">${label}</span></td>`;
     }
@@ -688,10 +691,13 @@ renderGridEditor = function() {
 function toggleSeat(r, c) {
   const seat = state.layout.seats.find(s => s.r === r && s.c === c);
   if (!seat) {
-    state.layout.seats.push({ r, c, label: '', zone: '', isSeat: false, groupBind: '' });
+    state.layout.seats.push({ r, c, label: '', zone: '', type: 'blocked', groupBind: '' });
   } else {
-    seat.isSeat = !seat.isSeat;
-    if (!seat.isSeat) { seat.zone = ''; seat.groupBind = ''; }
+    // Cycle: seat → blocked → aisle → seat
+    const t = seat.type || 'seat';
+    if (t === 'seat') { seat.type = 'blocked'; seat.zone = ''; seat.groupBind = ''; }
+    else if (t === 'blocked') seat.type = 'aisle';
+    else seat.type = 'seat';
   }
   multiSelected.clear();
   renderGridEditor(); saveState();
@@ -709,12 +715,12 @@ function updateBatchToolbar() {
     state.groups.map((g,i) => `<option value="${i}">${g.name}</option>`).join('');
 }
 
-function batchSetSeat(isSeat) {
+function batchSetType(type) {
   multiSelected.forEach(key => {
     const [r, c] = key.split(',').map(Number);
     const seat = state.layout.seats.find(s => s.r === r && s.c === c);
-    if (seat) { seat.isSeat = isSeat; if (!isSeat) { seat.zone = ''; seat.groupBind = ''; } }
-    else state.layout.seats.push({ r, c, label: '', zone: '', isSeat, groupBind: '' });
+    if (seat) { seat.type = type; if (type !== 'seat') { seat.zone = ''; seat.groupBind = ''; } }
+    else state.layout.seats.push({ r, c, label: '', zone: '', type, groupBind: '' });
   });
   multiSelected.clear(); renderGridEditor(); saveState();
 }
@@ -726,7 +732,7 @@ function batchAssignGroup() {
   multiSelected.forEach(key => {
     const [r, c] = key.split(',').map(Number);
     const seat = state.layout.seats.find(s => s.r === r && s.c === c);
-    if (seat && seat.isSeat) seat.groupBind = gName;
+    if (seat && (seat.type||'seat')==='seat') seat.groupBind = gName;
   });
   toast('已分配 ' + multiSelected.size + ' 座到 ' + gName);
   multiSelected.clear(); renderGridEditor(); saveState();
@@ -747,7 +753,7 @@ function markZone() {
 
   cells.forEach(({r, c}) => {
     const seat = state.layout.seats.find(s => s.r === r && s.c === c);
-    if (seat) { seat.zone = name; seat.isSeat = true; }
+    if (seat) { seat.zone = name; seat.type = 'seat'; }
     if (!state.zones[name].some(s => s.r === r && s.c === c)) state.zones[name].push({r, c});
   });
   document.getElementById('zoneName').value = '';
@@ -770,7 +776,7 @@ function updateZoneProp(name, prop, value) {
     state.layout.seats.forEach(s => { if (s.zone === name) s.groupBind = value; });
   }
   if (prop === 'seatable') {
-    state.layout.seats.forEach(s => { if (s.zone === name) s.isSeat = value; });
+    state.layout.seats.forEach(s => { if (s.zone === name) s.type = value ? 'seat' : 'blocked'; });
   }
   renderGridEditor(); saveState();
 }
@@ -859,7 +865,7 @@ function parseLayoutCSV(text) {
   lines.forEach((line, r) => {
     line.split(/[,\t]/).forEach((cell, c) => {
       const val = cell.trim();
-      seats.push({ r, c, label: val, zone: '', isSeat: !!val, groupBind: '' });
+      seats.push({ r, c, label: val, zone: '', type: val?'seat':'blocked', groupBind: '' });
     });
   });
   state.layout = { rows: lines.length, cols: Math.max(...seats.map(s=>s.c))+1, seats };
@@ -877,7 +883,7 @@ function parseLayoutFromRows(rows) {
     if (!row || row.every(c => !c)) return;
     row.forEach((cell, c) => {
       const val = String(cell||'').trim();
-      seats.push({ r, c, label: val, zone: '', isSeat: val && val !== '0', groupBind: '' });
+      seats.push({ r, c, label: val, zone: '', type: (val && val !== '0')?'seat':'blocked', groupBind: '' });
     });
   });
   if (seats.length === 0) { toast('未识别到座位', 'error'); return; }
@@ -915,7 +921,7 @@ function parseLayoutFromPDFItems(items) {
   curRow.sort((a,b) => a.x-b.x); rows.push(curRow);
   const seats = [];
   rows.forEach((row, r) => row.forEach((item, c) => {
-    seats.push({ r, c, label: item.text.trim(), zone: '', isSeat: !!item.text.trim(), groupBind: '' });
+    seats.push({ r, c, label: item.text.trim(), zone: '', type: item.text.trim()?'seat':'blocked', groupBind: '' });
   }));
   state.layout = { rows: rows.length, cols: Math.max(...rows.map(r=>r.length)), seats };
   state.zones = {}; state.zoneProps = {}; multiSelected.clear();
@@ -1108,16 +1114,18 @@ function renderFixedSeatGrid() {
     html += '<tr>';
     for (let c = 0; c < maxC; c++) {
       const seat = seats.find(s => s.r === r && s.c === c);
-      const isSeat = seat && seat.isSeat;
+      const type = seat ? (seat.type||'seat') : 'blocked';
+      const isSeat = type === 'seat';
       const key = r + ',' + c;
       const occ = occupied.has(key);
       let bg = 'white';
-      if (!isSeat) bg = 'var(--gray-200)';
+      if (type === 'aisle') bg = '#d1d5db';
+      else if (type === 'blocked') bg = '#fee2e2';
       else if (occ) bg = '#fecaca';
       const onClick = (isSeat && !occ) ? `onclick="pickFixedSeat(${r},${c})"` :
         (occ ? `onclick="unpickFixedSeat(${r},${c})"` : '');
       html += `<td style="background:${bg};cursor:${isSeat?'pointer':'default'};width:56px;height:36px;font-size:10px" ${onClick}>
-        ${occ ? state.rules.fixed.find(f=>f.r===r&&f.c===c)?.name||'占' : (isSeat ? '空' : '')}
+        ${occ ? state.rules.fixed.find(f=>f.r===r&&f.c===c)?.name||'占' : (isSeat ? '空' : (type==='aisle'?'过道':'✕'))}
       </td>`;
     }
     html += '</tr>';
@@ -1151,7 +1159,7 @@ function confirmFixedSeat() {
 // ==================== STEP 4: ARRANGE ====================
 function autoArrange() {
   if (state.names.length === 0) { toast('请先导入名单', 'error'); return; }
-  const seats = state.layout.seats.filter(s => s.isSeat);
+  const seats = state.layout.seats.filter(s => (s.type||'seat')==='seat');
   if (seats.length === 0) { toast('请先设置座位表', 'error'); return; }
   if (seats.length < state.names.length) {
     toast('座位数不足！名单 ' + state.names.length + ' 人，座位 ' + seats.length + ' 个', 'error'); return;
@@ -1175,6 +1183,17 @@ function autoArrange() {
   // Phase 2: Group placement — priority: same row > adjacent rows close > compact cluster
   const placed = new Set(state.rules.fixed.map(f => f.name));
   const adjOffsets = [[0,1],[0,-1],[1,0],[-1,0]];
+  // Check if two seats are truly adjacent (no aisle in between)
+  function isAdjacent(r1,c1,r2,c2) {
+    const dr = Math.abs(r1-r2), dc = Math.abs(c1-c2);
+    if (dr + dc !== 1) return false;
+    // Check both seats are seatable
+    const s1 = state.layout.seats.find(s => s.r===r1&&s.c===c1);
+    const s2 = state.layout.seats.find(s => s.r===r2&&s.c===c2);
+    if (!s1 || !s2) return false;
+    if ((s1.type||'seat')==='aisle' || (s2.type||'seat')==='aisle') return false;
+    return true;
+  }
 
   function getEmptySeats(zoneFilter) {
     return seats.filter(s => {
@@ -1303,6 +1322,48 @@ function autoArrange() {
       }
     }
 
+    // Strategy 2.5: Try rectangular/square arrangement
+    if (!placedGroup) {
+      let bestRect = null, bestScore = Infinity;
+      const maxRectRows = Math.min(6, N);
+      for (let rectRows = 2; rectRows <= maxRectRows; rectRows++) {
+        const rectCols = Math.ceil(N / rectRows);
+        const byRow2 = {};
+        targetPool.forEach(s => { if (!byRow2[s.r]) byRow2[s.r] = []; byRow2[s.r].push(s); });
+        const rowsWithSeats = Object.keys(byRow2).map(Number).sort((a,b)=>a-b);
+        for (let ri = 0; ri <= rowsWithSeats.length - rectRows; ri++) {
+          const rowSet = rowsWithSeats.slice(ri, ri + rectRows);
+          if (rowSet[rectRows-1] - rowSet[0] !== rectRows - 1) continue;
+          let minC = Infinity, maxC = -Infinity;
+          for (const rr of rowSet) {
+            const cols = byRow2[rr].map(s=>s.c);
+            if (cols.length < rectCols) { minC = Infinity; break; }
+            minC = Math.min(minC, Math.min(...cols));
+            maxC = Math.max(maxC, Math.min(...cols) + rectCols - 1);
+          }
+          if (minC === Infinity) continue;
+          const rect = [];
+          for (const rr of rowSet) {
+            byRow2[rr].filter(s => s.c >= minC && s.c <= maxC).sort((a,b)=>a.c-b.c).slice(0, rectCols).forEach(s => rect.push(s));
+          }
+          if (rect.length >= N) {
+            const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
+            const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
+            if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
+          }
+        }
+      }
+      if (bestRect) {
+        for (let k = 0; k < N; k++) {
+          const s = bestRect[k];
+          result[s.r][s.c] = people[k];
+          usedSeats.add(s.r + ',' + s.c);
+          placed.add(people[k].name);
+        }
+        placedGroup = true;
+      }
+    }
+
     // Strategy 3: BFS from anchors outward (key fix: start from fixed members!)
     if (!placedGroup) {
       let bestCluster = null, bestScore = Infinity;
@@ -1331,6 +1392,7 @@ function autoArrange() {
             const nr = cur.r + dr, nc = cur.c + dc;
             const k = nr + ',' + nc;
             if (clusterSet.has(k)) continue;
+            if (!isAdjacent(cur.r,cur.c,nr,nc)) continue;
             const seat = targetPool.find(s => s.r === nr && s.c === nc && !clusterSet.has(k));
             if (seat) { clusterSet.add(k); cluster.push(seat); queue.push(seat); if (cluster.length>=N) break; }
           }
@@ -1371,6 +1433,7 @@ function autoArrange() {
               const nr = cur.r+dr, nc = cur.c+dc;
               const k = nr+','+nc;
               if (clusterSet.has(k)) continue;
+              if (!isAdjacent(cur.r,cur.c,nr,nc)) continue;
               const seat = targetPool.find(s => s.r===nr && s.c===nc && !clusterSet.has(k));
               if (seat) { clusterSet.add(k); cluster.push(seat); queue.push(seat); if (cluster.length>=N) break; }
             }
@@ -1416,7 +1479,10 @@ function autoArrange() {
           if (result[r]?.[c]?.name === group[j]) bPos = {r,c};
         }
         if (!aPos || !bPos) continue;
-        if (Math.abs(aPos.r-bPos.r) <= 1 && Math.abs(aPos.c-bPos.c) <= 1) {
+        const dr = Math.abs(aPos.r-bPos.r), dc = Math.abs(aPos.c-bPos.c);
+        if (dr <= 1 && dc <= 1 && !(dr===0 && dc===0)) {
+          // Check if they're truly adjacent (not separated by aisle)
+          if (dr+dc === 1 && !isAdjacent(aPos.r,aPos.c,bPos.r,bPos.c)) continue;
           const safeSeats = shuffle(seats.filter(s => {
             const cell = result[s.r]?.[s.c];
             if (cell && cell.name !== group[j]) return false;
@@ -1467,7 +1533,7 @@ function renderResult() {
     html += '<tr>';
     for (let c = 0; c < maxC; c++) {
       const cell = grid[r]?.[c];
-      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && (s.type||'seat')==='seat');
       if (!seatExists) {
         html += '<td style="background:var(--gray-200)"></td>';
       } else if (cell && cell.name) {
@@ -1513,7 +1579,7 @@ function dragResultOver(e) {
   const td = e.target.closest('td');
   if (!td) return;
   const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
-  if (state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat)) {
+  if (state.layout.seats.some(s => s.r === r && s.c === c && (s.type||'seat')==='seat')) {
     td.classList.add('drag-over');
   }
 }
@@ -1544,7 +1610,7 @@ function handleResultTap(e) {
   const td = e.target.closest('td');
   if (!td) return;
   const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
-  const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+  const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && (s.type||'seat')==='seat');
   if (!seatExists) return;
 
   if (!tapSelected) {
@@ -1601,7 +1667,7 @@ function exportExcel() {
     const row = [];
     for (let c = 0; c < (grid[r]?.length || 0); c++) {
       const cell = grid[r]?.[c];
-      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && (s.type||'seat')==='seat');
       if (!seatExists) row.push('');
       else if (cell && cell.name) row.push(cell.name + (cell.group ? ' [' + cell.group + ']' : ''));
       else row.push('空');
@@ -1623,7 +1689,7 @@ function exportCSV() {
     const row = [];
     for (let c = 0; c < (grid[r]?.length || 0); c++) {
       const cell = grid[r]?.[c];
-      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && s.isSeat);
+      const seatExists = state.layout.seats.some(s => s.r === r && s.c === c && (s.type||'seat')==='seat');
       if (!seatExists) row.push('');
       else if (cell && cell.name) row.push(cell.name + (cell.group ? ' [' + cell.group + ']' : ''));
       else row.push('空');
