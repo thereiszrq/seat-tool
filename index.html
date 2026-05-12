@@ -958,6 +958,21 @@ function updateGroupName(idx, name) {
   saveState();
 }
 
+// Drag name to group
+let dragNameToGroup_name = '';
+function dragNameToGroup(e, name) {
+  dragNameToGroup_name = name;
+  e.dataTransfer.effectAllowed = 'move';
+}
+function dropNameToGroup(e, gIdx) {
+  e.preventDefault();
+  e.currentTarget.style.borderColor = '';
+  if (dragNameToGroup_name) {
+    moveToGroup(dragNameToGroup_name, gIdx);
+    dragNameToGroup_name = '';
+  }
+}
+
 function renderGroupCards() {
   const container = document.getElementById('groupCards');
   const assigned = new Set(state.groups.flatMap(g => g.members));
@@ -969,7 +984,7 @@ function renderGroupCards() {
       <option value="">不绑定区域</option>
       ${Object.keys(state.zones).map(z => `<option value="${z}" ${g.zoneBind===z?'selected':''}>${z}</option>`).join('')}
     </select>`;
-    return `<div class="group-card">
+    return `<div class="group-card" ondragover="event.preventDefault();event.currentTarget.style.borderColor='var(--primary)'" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})">
       <div class="group-header">
         <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:140px" onchange="updateGroupName(${i},this.value)">
         <span style="font-size:12px;color:var(--gray-500)">${g.members.length}人</span>
@@ -1015,7 +1030,8 @@ function renderUnassignedPool(assigned) {
   }
   div.innerHTML = unassigned.map(n => {
     const groupOpts = state.groups.map((g,i) => `<option value="${i}">${g.name}</option>`).join('');
-    return `<span class="tag" style="display:inline-flex;align-items:center;gap:4px">
+    return `<span class="tag" style="display:inline-flex;align-items:center;gap:4px;cursor:grab"
+      draggable="true" ondragstart="dragNameToGroup(event,'${n.name}')">
       ${n.name}
       <select style="font-size:10px;padding:1px 3px;border:1px solid var(--gray-300);border-radius:3px" onchange="moveToGroup('${n.name}',parseInt(this.value))">
         <option value="">加入...</option>${groupOpts}
@@ -1278,21 +1294,25 @@ function autoArrange() {
 
     for (const r of rowKeys) {
       const rowSeats = byRow[r].sort((a,b) => a.c - b.c);
+      let bestWindow = null, bestScore = Infinity;
       for (let start = 0; start <= rowSeats.length - N; start++) {
         const window = rowSeats.slice(start, start + N);
         const consecutive = window.every((s, i) => i === 0 || s.c === window[i-1].c + 1);
         if (consecutive) {
-          for (let k = 0; k < N; k++) {
-            const s = window[k];
-            result[s.r][s.c] = people[k];
-            usedSeats.add(s.r + ',' + s.c);
-            placed.add(people[k].name);
-          }
-          placedGroup = true;
-          break;
+          const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
+          if (avgProx < bestScore) { bestScore = avgProx; bestWindow = window; }
         }
       }
-      if (placedGroup) break;
+      if (bestWindow) {
+        for (let k = 0; k < N; k++) {
+          const s = bestWindow[k];
+          result[s.r][s.c] = people[k];
+          usedSeats.add(s.r + ',' + s.c);
+          placed.add(people[k].name);
+        }
+        placedGroup = true;
+        break;
+      }
     }
 
     // Strategy 2: Best effort same row, prefer proximity to anchors
