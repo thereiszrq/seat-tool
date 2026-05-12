@@ -70,7 +70,7 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
 .tag .remove:hover{color:var(--danger)}
 
 /* Grid editor */
-.grid-editor{overflow:auto;max-height:500px;border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px;background:var(--gray-50);position:relative;-webkit-overflow-scrolling:touch}
+.grid-editor{overflow:auto;max-height:500px;border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px;background:var(--gray-50);position:relative;-webkit-overflow-scrolling:touch;touch-action:manipulation}
 .grid-table{border-collapse:collapse;margin:0 auto}
 .grid-table td{width:var(--grid-cell);height:var(--grid-cell-h);text-align:center;border:1px solid var(--gray-300);font-size:var(--grid-font);cursor:pointer;position:relative;transition:background .1s;background:white;user-select:none;-webkit-user-select:none;padding:2px}
 .grid-table td:active{background:#eef2ff}
@@ -545,28 +545,24 @@ function toggleSelectMode() {
   if (selectMode) {
     btn.textContent = '✅ 选择中'; btn.style.background='var(--warning)'; btn.style.color='#000'; btn.style.border='none';
     hint.textContent = '拖拽圈选(再圈取消) | 点击单选';
-    // Disable scroll on grid while in select mode
+    // Disable scroll on grid while in select mode (CRITICAL for touch drag)
     const grid = document.getElementById('gridEditor');
-    if (grid) grid.style.touchAction = 'none';
+    if (grid) { grid.style.touchAction = 'none'; grid.style.overflow = 'hidden'; }
   } else {
     btn.textContent = '🖐 选择模式'; btn.style.background=''; btn.style.color=''; btn.style.border='';
     hint.textContent = '';
     multiSelected.clear(); renderGridEditor();
     const grid = document.getElementById('gridEditor');
-    if (grid) grid.style.touchAction = '';
+    if (grid) { grid.style.touchAction = ''; grid.style.overflow = ''; }
   }
 }
 
-// Pointer-event based drag for circle-select
+// Pointer + touch event based drag for circle-select
 let ptrDown = false, ptrStart = null, ptrEnd = null, ptrMoved = false;
 let ptrIsTouch = false;
-let ptrHandledBySelect = false; // Prevents click conflict in select mode
+let ptrHandledBySelect = false;
 
-function getCellFromEvent(e) {
-  let x, y;
-  if (e.touches && e.touches.length > 0) { x = e.touches[0].clientX; y = e.touches[0].clientY; }
-  else if (e.changedTouches && e.changedTouches.length > 0) { x = e.changedTouches[0].clientX; y = e.changedTouches[0].clientY; }
-  else { x = e.clientX; y = e.clientY; }
+function getCellFromPoint(x, y) {
   const el = document.elementFromPoint(x, y);
   if (!el) return null;
   const td = el.closest('td[data-r][data-c]');
@@ -575,24 +571,18 @@ function getCellFromEvent(e) {
 
 function handlePtrDown(r, c, e) {
   ptrIsTouch = (e.pointerType === 'touch');
-  if (ptrIsTouch && !selectMode) return; // Touch only works in select mode
+  if (ptrIsTouch && !selectMode) return;
   e.preventDefault();
-  // Capture pointer so we get move/up events even outside the grid
   const grid = document.getElementById('gridEditor');
-  if (grid) grid.setPointerCapture(e.pointerId);
+  if (grid) {
+    try { grid.setPointerCapture(e.pointerId); } catch(ex) {}
+  }
   ptrDown = true; ptrMoved = false;
   ptrStart = {r, c}; ptrEnd = {r, c};
   ptrHandledBySelect = false;
 }
 
-function handlePtrMove(e) {
-  if (!ptrDown) return;
-  const cell = getCellFromEvent(e);
-  if (!cell) return;
-  if (cell.r === ptrEnd.r && cell.c === ptrEnd.c) return;
-  ptrMoved = true;
-  ptrEnd = cell;
-  // Highlight selection area
+function highlightArea() {
   const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
   const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
   document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
@@ -601,50 +591,122 @@ function handlePtrMove(e) {
   });
 }
 
+function handlePtrMove(e) {
+  if (!ptrDown) return;
+  let x, y;
+  if (e.touches && e.touches.length > 0) { x = e.touches[0].clientX; y = e.touches[0].clientY; }
+  else { x = e.clientX; y = e.clientY; }
+  const cell = getCellFromPoint(x, y);
+  if (!cell) return;
+  if (cell.r === ptrEnd.r && cell.c === ptrEnd.c) return;
+  ptrMoved = true;
+  ptrEnd = cell;
+  highlightArea();
+}
+
 function handlePtrUp(e) {
   if (!ptrDown) return;
   ptrDown = false;
-  // Release pointer capture
   const grid = document.getElementById('gridEditor');
-  if (grid && grid.hasPointerCapture(e.pointerId)) grid.releasePointerCapture(e.pointerId);
+  if (grid) {
+    try { if (grid.hasPointerCapture(e.pointerId)) grid.releasePointerCapture(e.pointerId); } catch(ex) {}
+  }
 
   if (!ptrMoved) {
-    // It was a tap, not a drag
     if (ptrIsTouch && selectMode && ptrStart) {
-      // Toggle single cell in select mode
-      const key = ptrStart.r + ',' + ptrStart.c;
-      if (multiSelected.has(key)) multiSelected.delete(key);
-      else multiSelected.add(key);
+      // Range-select: if no previous cell, set as start; else select range
+      if (multiSelected.size === 0 || ptrStart.r === ptrEnd.r && ptrStart.c === ptrEnd.c) {
+        const key = ptrStart.r + ',' + ptrStart.c;
+        if (multiSelected.has(key)) multiSelected.delete(key);
+        else multiSelected.add(key);
+      }
       renderGridEditor();
-      ptrHandledBySelect = true; // Block onGridClick
+      ptrHandledBySelect = true;
     }
     ptrStart = ptrEnd = null; ptrIsTouch = false;
     return;
   }
 
-  // Drag ended — toggle cells in area (selected→unselect, unselected→select)
+  // Drag ended — toggle all cells in area
   const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
   const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
   const newSel = new Set([...multiSelected]);
-  for (let rr = r1; rr <= r2; rr++) {
+  for (let rr = r1; rr <= r2; rr++)
     for (let cc = c1; cc <= c2; cc++) {
       const key = rr + ',' + cc;
       if (multiSelected.has(key)) newSel.delete(key);
       else newSel.add(key);
     }
-  }
   multiSelected = newSel;
   renderGridEditor();
   if (r1 !== r2 || c1 !== c2) document.getElementById('zoneName').value = '';
   ptrStart = ptrEnd = null; ptrIsTouch = false;
-  ptrHandledBySelect = selectMode; // Block onGridClick if in select mode
+  ptrHandledBySelect = selectMode;
+}
+
+// Also add direct touch events as backup
+function setupTouchGrid() {
+  const grid = document.getElementById('gridEditor');
+  if (!grid) return;
+
+  grid.addEventListener('touchstart', function(e) {
+    if (!selectMode) return;
+    const td = e.target.closest('td[data-r][data-c]');
+    if (!td) return;
+    e.preventDefault();
+    const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
+    // Only handle if pointer events didn't already
+    if (ptrDown) return;
+    ptrDown = true; ptrIsTouch = true; ptrMoved = false;
+    ptrStart = {r,c}; ptrEnd = {r,c};
+    ptrHandledBySelect = false;
+  }, {passive: false});
+
+  grid.addEventListener('touchmove', function(e) {
+    if (!ptrDown || !ptrIsTouch) return;
+    e.preventDefault();
+    const cell = getCellFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    if (!cell) return;
+    if (cell.r === ptrEnd.r && cell.c === ptrEnd.c) return;
+    ptrMoved = true;
+    ptrEnd = cell;
+    highlightArea();
+  }, {passive: false});
+
+  grid.addEventListener('touchend', function(e) {
+    if (!ptrDown || !ptrIsTouch) return;
+    ptrDown = false;
+    if (!ptrMoved) {
+      if (ptrStart) {
+        const key = ptrStart.r + ',' + ptrStart.c;
+        if (multiSelected.has(key)) multiSelected.delete(key);
+        else multiSelected.add(key);
+        renderGridEditor();
+        ptrHandledBySelect = true;
+      }
+    } else {
+      const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
+      const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
+      const newSel = new Set([...multiSelected]);
+      for (let rr = r1; rr <= r2; rr++)
+        for (let cc = c1; cc <= c2; cc++) {
+          const key = rr + ',' + cc;
+          if (multiSelected.has(key)) newSel.delete(key);
+          else newSel.add(key);
+        }
+      multiSelected = newSel;
+      renderGridEditor();
+      if (r1 !== r2 || c1 !== c2) document.getElementById('zoneName').value = '';
+    }
+    ptrStart = ptrEnd = null; ptrIsTouch = false;
+    ptrHandledBySelect = selectMode;
+  }, {passive: false});
 }
 
 // Attach pointer events to grid container
 function bindGridEvents() {
   const grid = document.getElementById('gridEditor');
   if (!grid) return;
-  // Use event delegation
   grid.onpointerdown = function(e) {
     const td = e.target.closest('td[data-r][data-c]');
     if (!td) return;
@@ -654,13 +716,14 @@ function bindGridEvents() {
   grid.onpointermove = handlePtrMove;
   grid.onpointerup = handlePtrUp;
   grid.onpointerleave = handlePtrUp;
+  // Also set up direct touch handlers as backup
+  setupTouchGrid();
 }
 
-// Click handler for desktop (not touch/select-mode)
+// Click handler
 function onGridClick(r, c, e) {
-  // Skip if pointer events already handled this in select mode (avoids double-toggle)
   if (ptrHandledBySelect) { ptrHandledBySelect = false; return; }
-  if (selectMode) return; // Select mode clicks are handled by pointer events
+  if (selectMode) return;
   if (ptrMoved) { ptrMoved = false; return; }
 
   if (e.ctrlKey || e.metaKey) {
@@ -958,20 +1021,57 @@ function updateGroupName(idx, name) {
   saveState();
 }
 
-// Drag name to group
+// Drag name to group (desktop + mobile)
 let dragNameToGroup_name = '';
+let touchDragClone = null;
+
 function dragNameToGroup(e, name) {
   dragNameToGroup_name = name;
-  e.dataTransfer.effectAllowed = 'move';
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
 }
-function dropNameToGroup(e, gIdx) {
+
+// Mobile touch drag
+function touchDragNameStart(e, name) {
+  if (e.pointerType !== 'touch') return;
   e.preventDefault();
-  e.currentTarget.style.borderColor = '';
-  if (dragNameToGroup_name) {
-    moveToGroup(dragNameToGroup_name, gIdx);
-    dragNameToGroup_name = '';
-  }
+  dragNameToGroup_name = name;
+  const el = e.target.closest('.tag');
+  if (el) el.style.opacity = '0.5';
+  // Create floating clone
+  touchDragClone = document.createElement('span');
+  touchDragClone.className = 'tag';
+  touchDragClone.textContent = name;
+  touchDragClone.style.cssText = 'position:fixed;z-index:999;pointer-events:none;background:var(--primary);color:white;font-size:14px;transform:translate(-50%,-50%)';
+  document.body.appendChild(touchDragClone);
+  moveTouchClone(e);
 }
+
+function moveTouchClone(e) {
+  if (!touchDragClone) return;
+  touchDragClone.style.left = e.clientX + 'px';
+  touchDragClone.style.top = e.clientY + 'px';
+}
+
+function touchDragNameEnd(e) {
+  if (!touchDragClone) return;
+  document.body.removeChild(touchDragClone);
+  touchDragClone = null;
+  // Find which group card we're over
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  if (el) {
+    const card = el.closest('.group-card');
+    if (card && card.dataset.groupIdx !== undefined) {
+      const gIdx = parseInt(card.dataset.groupIdx);
+      moveToGroup(dragNameToGroup_name, gIdx);
+    }
+  }
+  // Restore opacity
+  document.querySelectorAll('#unassignedPool .tag').forEach(t => t.style.opacity = '');
+  dragNameToGroup_name = '';
+}
+
+document.addEventListener('pointermove', moveTouchClone);
+document.addEventListener('pointerup', touchDragNameEnd);
 
 function renderGroupCards() {
   const container = document.getElementById('groupCards');
@@ -984,7 +1084,7 @@ function renderGroupCards() {
       <option value="">不绑定区域</option>
       ${Object.keys(state.zones).map(z => `<option value="${z}" ${g.zoneBind===z?'selected':''}>${z}</option>`).join('')}
     </select>`;
-    return `<div class="group-card" ondragover="event.preventDefault();event.currentTarget.style.borderColor='var(--primary)'" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})">
+    return `<div class="group-card" data-group-idx="${i}" ondragover="event.preventDefault();event.currentTarget.style.borderColor='var(--primary)'" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})" style="transition:border-color .2s">
       <div class="group-header">
         <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:140px" onchange="updateGroupName(${i},this.value)">
         <span style="font-size:12px;color:var(--gray-500)">${g.members.length}人</span>
@@ -1030,8 +1130,8 @@ function renderUnassignedPool(assigned) {
   }
   div.innerHTML = unassigned.map(n => {
     const groupOpts = state.groups.map((g,i) => `<option value="${i}">${g.name}</option>`).join('');
-    return `<span class="tag" style="display:inline-flex;align-items:center;gap:4px;cursor:grab"
-      draggable="true" ondragstart="dragNameToGroup(event,'${n.name}')">
+    return `<span class="tag" style="display:inline-flex;align-items:center;gap:4px;cursor:grab;touch-action:none"
+      draggable="true" ondragstart="dragNameToGroup(event,'${n.name}')" onpointerdown="touchDragNameStart(event,'${n.name}')">
       ${n.name}
       <select style="font-size:10px;padding:1px 3px;border:1px solid var(--gray-300);border-radius:3px" onchange="moveToGroup('${n.name}',parseInt(this.value))">
         <option value="">加入...</option>${groupOpts}
@@ -1300,7 +1400,10 @@ function autoArrange() {
         const consecutive = window.every((s, i) => i === 0 || s.c === window[i-1].c + 1);
         if (consecutive) {
           const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
-          if (avgProx < bestScore) { bestScore = avgProx; bestWindow = window; }
+          // Slight left bias: subtract a tiny amount for windows left of anchor
+          const leftBias = anchorPositions.length > 0 && window.every(s => s.c < anchorPositions[0].c) ? -0.01 : 0;
+          const score = avgProx + leftBias;
+          if (score < bestScore) { bestScore = score; bestWindow = window; }
         }
       }
       if (bestWindow) {
@@ -1342,34 +1445,34 @@ function autoArrange() {
       }
     }
 
-    // Strategy 2.5: Try rectangular/square arrangement
+    // Strategy 2.5: Scan grid for empty rectangular blocks
     if (!placedGroup) {
       let bestRect = null, bestScore = Infinity;
-      const maxRectRows = Math.min(6, N);
-      for (let rectRows = 2; rectRows <= maxRectRows; rectRows++) {
-        const rectCols = Math.ceil(N / rectRows);
-        const byRow2 = {};
-        targetPool.forEach(s => { if (!byRow2[s.r]) byRow2[s.r] = []; byRow2[s.r].push(s); });
-        const rowsWithSeats = Object.keys(byRow2).map(Number).sort((a,b)=>a-b);
-        for (let ri = 0; ri <= rowsWithSeats.length - rectRows; ri++) {
-          const rowSet = rowsWithSeats.slice(ri, ri + rectRows);
-          if (rowSet[rectRows-1] - rowSet[0] !== rectRows - 1) continue;
-          let minC = Infinity, maxC = -Infinity;
-          for (const rr of rowSet) {
-            const cols = byRow2[rr].map(s=>s.c);
-            if (cols.length < rectCols) { minC = Infinity; break; }
-            minC = Math.min(minC, Math.min(...cols));
-            maxC = Math.max(maxC, Math.min(...cols) + rectCols - 1);
-          }
-          if (minC === Infinity) continue;
-          const rect = [];
-          for (const rr of rowSet) {
-            byRow2[rr].filter(s => s.c >= minC && s.c <= maxC).sort((a,b)=>a.c-b.c).slice(0, rectCols).forEach(s => rect.push(s));
-          }
-          if (rect.length >= N) {
-            const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
-            const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
-            if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
+      // Scan all possible top-left corners and rectangle sizes
+      const allRows = [...new Set(targetPool.map(s=>s.r))].sort((a,b)=>a-b);
+      const allCols = [...new Set(targetPool.map(s=>s.c))].sort((a,b)=>a-b);
+      for (const r0 of allRows) {
+        for (const c0 of allCols) {
+          for (let h = 2; h <= 6; h++) {
+            const w = Math.ceil(N / h);
+            if (h * w < N) continue;
+            // Check if rectangle (r0..r0+h-1, c0..c0+w-1) is all empty
+            const rect = [];
+            let valid = true;
+            for (let dr = 0; dr < h && valid; dr++) {
+              for (let dc = 0; dc < w && valid; dc++) {
+                const key = (r0+dr)+','+(c0+dc);
+                if (usedSeats.has(key)) { valid = false; break; }
+                const seat = targetPool.find(s => s.r===r0+dr && s.c===c0+dc);
+                if (!seat) { valid = false; break; }
+                rect.push(seat);
+              }
+            }
+            if (valid && rect.length >= N) {
+              const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
+              const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
+              if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
+            }
           }
         }
       }
