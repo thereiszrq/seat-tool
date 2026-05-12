@@ -1335,7 +1335,12 @@ function autoArrange() {
     if (anchorPositions.length > 0) {
       const seedSeats = anchorPositions.map(a => targetPool.find(s => s.r===a.r && s.c===a.c && !usedSeats.has(s.r+','+s.c))).filter(Boolean);
       if (seedSeats.length > 0 || targetPool.length > 0) {
-        const seeds = seedSeats.length > 0 ? seedSeats : [targetPool[0]];
+        // If anchor positions are occupied, get seats closest to anchors
+        let seeds = seedSeats;
+        if (seeds.length === 0) {
+          seeds = targetPool.map(s => ({seat:s, dist: anchorPositions.reduce((min,a) => Math.min(min, Math.abs(s.r-a.r)+Math.abs(s.c-a.c)), Infinity)}))
+            .sort((a,b) => a.dist - b.dist).slice(0, 3).map(x => x.seat);
+        }
         let best = null, bestS = Infinity;
         for (const start of seeds.slice(0, 10)) {
           const cl = [start], cs = new Set([start.r+','+start.c]), q = [start];
