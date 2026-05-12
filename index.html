@@ -618,15 +618,18 @@ function setupGridDrag() {
   if (!grid || grid._dragSet) return;
   grid._dragSet = true;
 
+  // Desktop: simple mousedown/mousemove/mouseup
+  let mouseDown = false;
   grid.addEventListener('mousedown', function(e) {
     const td = e.target.closest('td[data-r][data-c]');
-    if (!td) { dragInfo = null; return; }
+    if (!td) return;
+    mouseDown = true;
     const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
     dragInfo = { r1: r, c1: c, r2: r, c2: c, moved: false, additive: e.ctrlKey||e.metaKey };
   });
 
   document.addEventListener('mousemove', function(e) {
-    if (!dragInfo) return;
+    if (!mouseDown || !dragInfo) return;
     const cell = getCellAt(e);
     if (!cell) return;
     if (cell.r === dragInfo.r2 && cell.c === dragInfo.c2) return;
@@ -641,29 +644,31 @@ function setupGridDrag() {
   });
 
   document.addEventListener('mouseup', function(e) {
-    if (dragInfo && dragInfo.moved) {
-      e.stopPropagation();
+    mouseDown = false;
+    if (!dragInfo) return;
+    if (dragInfo.moved) {
       applyDragSelection();
+    } else {
+      dragInfo = null;
     }
   });
 
-  // Mobile touch drag
+  // Mobile: touch events only in select mode
   grid.addEventListener('touchstart', function(e) {
     if (!selectMode) return;
     const td = e.target.closest('td[data-r][data-c]');
-    if (!td) { dragInfo = null; return; }
+    if (!td) return;
     e.preventDefault();
     dragInfo = { r1: parseInt(td.dataset.r), c1: parseInt(td.dataset.c), r2: parseInt(td.dataset.r), c2: parseInt(td.dataset.c), moved: false, additive: false };
   }, { passive: false });
 
   grid.addEventListener('touchmove', function(e) {
-    if (!dragInfo) return;
+    if (!dragInfo || !selectMode) return;
     e.preventDefault();
     const cell = getCellAt(e);
     if (!cell) return;
-    // Minimum 2-cell distance to start a drag (ignore tap jitter)
     const dist = Math.abs(cell.r - dragInfo.r1) + Math.abs(cell.c - dragInfo.c1);
-    if (dist < 1 && cell.r === dragInfo.r2 && cell.c === dragInfo.c2) return;
+    if (dist < 1) return;
     dragInfo.moved = true;
     dragInfo.r2 = cell.r; dragInfo.c2 = cell.c;
     const r1 = Math.min(dragInfo.r1, dragInfo.r2), r2 = Math.max(dragInfo.r1, dragInfo.r2);
@@ -675,14 +680,12 @@ function setupGridDrag() {
   }, { passive: false });
 
   grid.addEventListener('touchend', function(e) {
-    if (!dragInfo) return;
+    if (!dragInfo || !selectMode) return;
     if (dragInfo.moved) { applyDragSelection(); }
-    else {
-      const key = dragInfo.r1 + ',' + dragInfo.c1;
+    else { const key = dragInfo.r1 + ',' + dragInfo.c1;
       if (multiSelected.has(key)) multiSelected.delete(key);
       else multiSelected.add(key);
-      renderGridEditor();
-    }
+      renderGridEditor(); }
     dragInfo = null;
   });
 }
