@@ -1356,7 +1356,8 @@ function autoArrange() {
           }
           if (cl.length >= N) {
             const rs=cl.map(s=>s.r), cs2=cl.map(s=>s.c);
-            const sc = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs2)-Math.min(...cs2));
+            const prox = cl.reduce((sum,s) => { let min=Infinity; anchorPositions.forEach(a=>{ const d=Math.abs(s.r-a.r)+Math.abs(s.c-a.c); if(d<min)min=d; }); return sum+min; }, 0) / cl.length;
+            const sc = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs2)-Math.min(...cs2)) + prox * 10;
             if (sc < bestS) { bestS=sc; best=[...cl]; }
           }
         }
