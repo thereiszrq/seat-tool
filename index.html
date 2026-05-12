@@ -588,6 +588,8 @@ function applyDragSelection() {
 
 function onGridClick(r, c, e) {
   e.stopPropagation();
+  // Clear any lingering drag highlight
+  document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => { td.style.background = ''; });
   if (selectMode) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
@@ -1401,26 +1403,26 @@ function autoArrange() {
       }
     }
 
-    // Strategy 2: Best effort — fill closest seats near anchors (both sides)
-    if (!placedGroup) {
-      // When anchors exist, pick the N closest seats by proximity, across all rows
-      const sortedByProx = [...targetPool].sort((a, b) => proximityScore(a) - proximityScore(b));
-      const bestPick = sortedByProx.slice(0, N).sort((a, b) => a.r - b.r || a.c - b.c);
-      if (bestPick.length >= N) {
-        // Check no aisles between any adjacent picked seats (in sorted order)
-        let valid = true;
-        for (let wi = 1; wi < bestPick.length; wi++) {
-          if (bestPick[wi].r === bestPick[wi-1].r && !isAdjacent(bestPick[wi-1].r, bestPick[wi-1].c, bestPick[wi].r, bestPick[wi].c)) {
-            // Same row but separated by aisle — skip, BFS will handle cross-row
+    // Strategy 2: When no anchors, pick best same-row; when anchors, skip to BFS
+    if (!placedGroup && anchorPositions.length === 0) {
+      for (const r of rowKeys) {
+        const rowSeats = byRow[r].sort((a,b) => a.c - b.c);
+        if (rowSeats.length < N) continue;
+        let bestW = null, bestS = Infinity;
+        for (let start = 0; start <= rowSeats.length - N; start++) {
+          const w = rowSeats.slice(start, start + N);
+          let cross = false;
+          for (let wi = 1; wi < w.length; wi++) {
+            if (!isAdjacent(w[wi-1].r, w[wi-1].c, w[wi].r, w[wi].c)) { cross = true; break; }
           }
+          if (cross) continue;
+          const s = (w[N-1].c - w[0].c) * 10 + w.reduce((sum, s) => sum + proximityScore(s), 0) / N;
+          if (s < bestS) { bestS = s; bestW = w; }
         }
-        for (let k = 0; k < N; k++) {
-          const s = bestPick[k];
-          result[s.r][s.c] = people[k];
-          usedSeats.add(s.r + ',' + s.c);
-          placed.add(people[k].name);
+        if (bestW) {
+          for (let k = 0; k < N; k++) { const s = bestW[k]; result[s.r][s.c] = people[k]; usedSeats.add(s.r+','+s.c); placed.add(people[k].name); }
+          placedGroup = true; break;
         }
-        placedGroup = true;
       }
     }
 
