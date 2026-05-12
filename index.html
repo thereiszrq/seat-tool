@@ -1356,7 +1356,7 @@ function autoArrange() {
       let bestWindow = null, bestScore = Infinity;
       for (let start = 0; start <= rowSeats.length - N; start++) {
         const window = rowSeats.slice(start, start + N);
-        const consecutive = window.every((s, i) => i === 0 || s.c === window[i-1].c + 1);
+        const consecutive = window.every((s, i) => i === 0 || (s.c === window[i-1].c + 1 && isAdjacent(window[i-1].r, window[i-1].c, s.r, s.c)));
         if (consecutive) {
           const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
           // Slight left bias: subtract a tiny amount for windows left of anchor
@@ -1386,7 +1386,14 @@ function autoArrange() {
         for (let start = 0; start <= rowSeats.length - N; start++) {
           const window = rowSeats.slice(start, start + N);
           const spread = window[N-1].c - window[0].c;
-          // Score: spread + average distance to nearest anchor
+          // Penalize windows that cross aisles
+          let crossAisle = false;
+          for (let wi = 1; wi < window.length; wi++) {
+            if (!isAdjacent(window[wi-1].r, window[wi-1].c, window[wi].r, window[wi].c)) {
+              crossAisle = true; break;
+            }
+          }
+          if (crossAisle) continue; // Skip windows that span across aisles
           const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
           const score = spread * 10 + avgProx;
           if (score < bestScore) { bestScore = score; bestWindow = window; }
@@ -1431,9 +1438,23 @@ function autoArrange() {
                   }
                 }
                 if (allEmpty && rect.length >= N) {
-                  const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
-                  const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs)) + proximityScore(rect[0]);
-                  if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
+                  // Check no aisles within the rectangle
+                  let hasInternalAisle = false;
+                  for (let dr = 0; dr < h && !hasInternalAisle; dr++) {
+                    for (let dc = 0; dc < w - 1 && !hasInternalAisle; dc++) {
+                      if (!isAdjacent(r0+dr, c0+dc, r0+dr, c0+dc+1)) hasInternalAisle = true;
+                    }
+                  }
+                  for (let dr = 0; dr < h - 1 && !hasInternalAisle; dr++) {
+                    for (let dc = 0; dc < w && !hasInternalAisle; dc++) {
+                      if (!isAdjacent(r0+dr, c0+dc, r0+dr+1, c0+dc)) hasInternalAisle = true;
+                    }
+                  }
+                  if (!hasInternalAisle) {
+                    const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
+                    const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs)) + proximityScore(rect[0]);
+                    if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
+                  }
                 }
               }
             }
