@@ -285,7 +285,8 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   <div class="section-title">分组管理</div>
   <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">同组人尽量坐在一起。未分组的人排在最后随机填充。</p>
   <div id="groupCards"></div>
-  <button class="btn btn-outline btn-sm" onclick="addGroup()" style="margin-top:8px">+ 添加新分组</button>
+  <button class="btn btn-outline btn-sm" onclick="addGroup(1)" style="margin-top:8px">+ 添加分组</button>
+  <button class="btn btn-outline btn-sm" onclick="addGroup(4)" style="margin-top:8px;margin-left:4px">+ 批量添加4组</button>
 
   <div class="section-title" style="margin-top:24px">未分配人员</div>
   <div class="member-pool" id="unassignedPool"></div>
@@ -313,6 +314,7 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
     <div>
       <button class="btn btn-primary btn-lg" onclick="autoArrange()">🎲 自动排座</button>
       <button class="btn btn-outline" onclick="autoArrange()" style="margin-left:8px">重新排列</button>
+      <button class="btn btn-outline btn-sm" onclick="undoArrange()" style="margin-left:8px">↩ 撤回</button>
     </div>
     <div class="export-bar">
       <button class="btn btn-outline btn-sm" onclick="exportExcel()">📥 导出 Excel</button>
@@ -954,8 +956,12 @@ function parseLayoutFromPDFItems(items) {
 });
 
 // ==================== STEP 3: RULES ====================
-function addGroup() {
-  state.groups.push({ name: '新分组', members: [], zoneBind: '' });
+function addGroup(count) {
+  count = count || 1;
+  for (let i = 0; i < count; i++) {
+    const nextNum = state.groups.length + 1;
+    state.groups.push({ name: '第' + nextNum + '组', members: [], zoneBind: '' });
+  }
   renderGroupCards(); saveState();
 }
 
@@ -1239,8 +1245,19 @@ function confirmFixedSeat() {
 }
 
 // ==================== STEP 4: ARRANGE ====================
+let previousResult = null;
+function undoArrange() {
+  if (!previousResult) { toast('没有可撤回的排座', 'error'); return; }
+  state.result = previousResult;
+  previousResult = null;
+  renderResult();
+  saveState();
+  toast('已撤回');
+}
 function autoArrange() {
   if (state.names.length === 0) { toast('请先导入名单', 'error'); return; }
+  // Save for undo
+  if (state.result) previousResult = JSON.parse(JSON.stringify(state.result));
   const seats = state.layout.seats.filter(s => (s.type||'seat')==='seat');
   if (seats.length === 0) { toast('请先设置座位表', 'error'); return; }
   if (seats.length < state.names.length) {
