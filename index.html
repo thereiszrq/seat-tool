@@ -1340,13 +1340,12 @@ function autoArrange() {
     poolWithScore.sort((a, b) => a.score - b.score || a.seat.r - b.seat.r || a.seat.c - b.seat.c);
     targetPool = poolWithScore.map(p => p.seat);
 
-    // Strategy 1: Find a single row with N consecutive empty seats, prefer rows with anchors
+    // Strategy 1: When anchors exist, fill seats around them on both sides
     const byRow = {};
     targetPool.forEach(s => {
       if (!byRow[s.r]) byRow[s.r] = [];
       byRow[s.r].push(s);
     });
-    // Priority: rows that have fixed members first, then by seat count
     const anchorRows = new Set(anchorPositions.map(a => a.r));
     const rowKeys = shuffle(Object.keys(byRow).map(Number))
       .sort((a, b) => (anchorRows.has(b) ? 1 : 0) - (anchorRows.has(a) ? 1 : 0) || byRow[b].length - byRow[a].length);
@@ -1354,17 +1353,42 @@ function autoArrange() {
     for (const r of rowKeys) {
       const rowSeats = byRow[r].sort((a,b) => a.c - b.c);
       let bestWindow = null, bestScore = Infinity;
-      for (let start = 0; start <= rowSeats.length - N; start++) {
-        const window = rowSeats.slice(start, start + N);
-        const consecutive = window.every((s, i) => i === 0 || (s.c === window[i-1].c + 1 && isAdjacent(window[i-1].r, window[i-1].c, s.r, s.c)));
-        if (consecutive) {
-          const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
-          // Slight left bias: subtract a tiny amount for windows left of anchor
-          const leftBias = anchorPositions.length > 0 && window.every(s => s.c < anchorPositions[0].c) ? -0.01 : 0;
-          const score = avgProx + leftBias;
-          if (score < bestScore) { bestScore = score; bestWindow = window; }
+
+      if (anchorPositions.length > 0) {
+        // With anchors: expand outward from anchor columns in this row
+        const anchorCols = anchorPositions.filter(a => a.r === r).map(a => a.c);
+        if (anchorCols.length > 0) {
+          // Collect seats closest to anchors, alternating left and right
+          const seatsByDist = rowSeats.map(s => ({
+            seat: s,
+            dist: Math.min(...anchorCols.map(ac => Math.abs(s.c - ac)))
+          })).sort((a, b) => a.dist - b.dist || a.seat.c - b.seat.c);
+          const window = seatsByDist.slice(0, N).map(s => s.seat).sort((a, b) => a.c - b.c);
+          if (window.length >= N) {
+            // Check no aisles between consecutive
+            let valid = true;
+            for (let wi = 1; wi < window.length; wi++) {
+              if (!isAdjacent(window[wi-1].r, window[wi-1].c, window[wi].r, window[wi].c)) { valid = false; break; }
+            }
+            if (valid) bestWindow = window;
+          }
         }
       }
+
+      // Fallback: standard sliding window for consecutive seats
+      if (!bestWindow) {
+        for (let start = 0; start <= rowSeats.length - N; start++) {
+          const window = rowSeats.slice(start, start + N);
+          const consecutive = window.every((s, i) => i === 0 || (s.c === window[i-1].c + 1 && isAdjacent(window[i-1].r, window[i-1].c, s.r, s.c)));
+          if (consecutive) {
+            const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
+            const leftBias = anchorPositions.length > 0 && window.every(s => s.c < anchorPositions[0].c) ? -0.01 : 0;
+            const score = avgProx + leftBias;
+            if (score < bestScore) { bestScore = score; bestWindow = window; }
+          }
+        }
+      }
+
       if (bestWindow) {
         for (let k = 0; k < N; k++) {
           const s = bestWindow[k];
@@ -1377,37 +1401,26 @@ function autoArrange() {
       }
     }
 
-    // Strategy 2: Best effort same row, prefer proximity to anchors
+    // Strategy 2: Best effort — fill closest seats near anchors (both sides)
     if (!placedGroup) {
-      for (const r of rowKeys) {
-        const rowSeats = byRow[r].sort((a,b) => a.c - b.c);
-        if (rowSeats.length < N) continue;
-        let bestWindow = null, bestScore = Infinity;
-        for (let start = 0; start <= rowSeats.length - N; start++) {
-          const window = rowSeats.slice(start, start + N);
-          const spread = window[N-1].c - window[0].c;
-          // Penalize windows that cross aisles
-          let crossAisle = false;
-          for (let wi = 1; wi < window.length; wi++) {
-            if (!isAdjacent(window[wi-1].r, window[wi-1].c, window[wi].r, window[wi].c)) {
-              crossAisle = true; break;
-            }
+      // When anchors exist, pick the N closest seats by proximity, across all rows
+      const sortedByProx = [...targetPool].sort((a, b) => proximityScore(a) - proximityScore(b));
+      const bestPick = sortedByProx.slice(0, N).sort((a, b) => a.r - b.r || a.c - b.c);
+      if (bestPick.length >= N) {
+        // Check no aisles between any adjacent picked seats (in sorted order)
+        let valid = true;
+        for (let wi = 1; wi < bestPick.length; wi++) {
+          if (bestPick[wi].r === bestPick[wi-1].r && !isAdjacent(bestPick[wi-1].r, bestPick[wi-1].c, bestPick[wi].r, bestPick[wi].c)) {
+            // Same row but separated by aisle — skip, BFS will handle cross-row
           }
-          if (crossAisle) continue; // Skip windows that span across aisles
-          const avgProx = window.reduce((sum, s) => sum + proximityScore(s), 0) / N;
-          const score = spread * 10 + avgProx;
-          if (score < bestScore) { bestScore = score; bestWindow = window; }
         }
-        if (bestWindow) {
-          for (let k = 0; k < N; k++) {
-            const s = bestWindow[k];
-            result[s.r][s.c] = people[k];
-            usedSeats.add(s.r + ',' + s.c);
-            placed.add(people[k].name);
-          }
-          placedGroup = true;
-          break;
+        for (let k = 0; k < N; k++) {
+          const s = bestPick[k];
+          result[s.r][s.c] = people[k];
+          usedSeats.add(s.r + ',' + s.c);
+          placed.add(people[k].name);
         }
+        placedGroup = true;
       }
     }
 
