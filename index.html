@@ -77,6 +77,7 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
 .grid-table td.selected-multi{background:#dbeafe !important;border-color:var(--primary) !important;box-shadow:inset 0 0 0 2px var(--primary)}
 .grid-table td.aisle{background:#d1d5db;cursor:pointer;color:transparent;background-image:repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,.06) 3px,rgba(0,0,0,.06) 6px)}
 .grid-table td.blocked{background:#fee2e2;cursor:pointer;color:var(--gray-400);font-size:9px}
+.grid-table td.drag-hl{background:#dbeafe!important}
 .grid-table td .seat-label{font-size:10px;color:var(--gray-500);pointer-events:none}
 .grid-table td .zone-tag{position:absolute;top:1px;right:2px;font-size:8px;background:var(--warning);color:white;padding:0 3px;border-radius:2px;font-weight:700;pointer-events:none}
 .grid-table td .group-tag{position:absolute;bottom:1px;left:2px;font-size:8px;background:var(--success);color:white;padding:0 3px;border-radius:2px;pointer-events:none}
@@ -588,8 +589,6 @@ function applyDragSelection() {
 
 function onGridClick(r, c, e) {
   e.stopPropagation();
-  // Clear any lingering drag highlight
-  document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => { td.style.background = ''; });
   if (selectMode) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
@@ -637,7 +636,7 @@ function setupGridDrag() {
     const c1 = Math.min(dragInfo.c1, dragInfo.c2), c2 = Math.max(dragInfo.c1, dragInfo.c2);
     document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
       const rr = parseInt(td.dataset.r), cc = parseInt(td.dataset.c);
-      td.style.background = (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) ? '#dbeafe' : '';
+      td.classList.toggle('drag-hl', rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2);
     });
   });
 
@@ -646,8 +645,6 @@ function setupGridDrag() {
       e.stopPropagation();
       applyDragSelection();
     }
-    // Clear highlight on every mouseup
-    document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => { td.style.background = ''; });
   });
 
   // Mobile touch drag
@@ -663,14 +660,17 @@ function setupGridDrag() {
     if (!dragInfo) return;
     e.preventDefault();
     const cell = getCellAt(e);
-    if (!cell || (cell.r === dragInfo.r2 && cell.c === dragInfo.c2)) return;
+    if (!cell) return;
+    // Minimum 2-cell distance to start a drag (ignore tap jitter)
+    const dist = Math.abs(cell.r - dragInfo.r1) + Math.abs(cell.c - dragInfo.c1);
+    if (dist < 1 && cell.r === dragInfo.r2 && cell.c === dragInfo.c2) return;
     dragInfo.moved = true;
     dragInfo.r2 = cell.r; dragInfo.c2 = cell.c;
     const r1 = Math.min(dragInfo.r1, dragInfo.r2), r2 = Math.max(dragInfo.r1, dragInfo.r2);
     const c1 = Math.min(dragInfo.c1, dragInfo.c2), c2 = Math.max(dragInfo.c1, dragInfo.c2);
     document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
       const rr = parseInt(td.dataset.r), cc = parseInt(td.dataset.c);
-      td.style.background = (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) ? '#dbeafe' : '';
+      td.classList.toggle('drag-hl', rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2);
     });
   }, { passive: false });
 
@@ -1328,6 +1328,39 @@ function autoArrange() {
 
     let placedGroup = false;
 
+    // === ANCHOR BFS: when fixed members exist, fill around them first ===
+    if (anchorPositions.length > 0) {
+      const seedSeats = anchorPositions.map(a => targetPool.find(s => s.r===a.r && s.c===a.c && !usedSeats.has(s.r+','+s.c))).filter(Boolean);
+      if (seedSeats.length > 0 || targetPool.length > 0) {
+        const seeds = seedSeats.length > 0 ? seedSeats : [targetPool[0]];
+        let best = null, bestS = Infinity;
+        for (const start of seeds.slice(0, 10)) {
+          const cl = [start], cs = new Set([start.r+','+start.c]), q = [start];
+          while (q.length > 0 && cl.length < N) {
+            const cur = q.shift();
+            for (const [dr,dc] of shuffle([[0,1],[0,-1],[1,0],[-1,0]])) {
+              const nr=cur.r+dr,nc=cur.c+dc,k=nr+','+nc;
+              if (cs.has(k)) continue;
+              if (!isAdjacent(cur.r,cur.c,nr,nc)) continue;
+              const seat = targetPool.find(s => s.r===nr && s.c===nc && !cs.has(k));
+              if (seat) { cs.add(k); cl.push(seat); q.push(seat); if(cl.length>=N) break; }
+            }
+          }
+          if (cl.length >= N) {
+            const rs=cl.map(s=>s.r), cs2=cl.map(s=>s.c);
+            const sc = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs2)-Math.min(...cs2));
+            if (sc < bestS) { bestS=sc; best=[...cl]; }
+          }
+        }
+        if (best) {
+          for (let k=0;k<N;k++) { const s=best[k]; result[s.r][s.c]=people[k]; usedSeats.add(s.r+','+s.c); placed.add(people[k].name); }
+          placedGroup = true;
+        }
+      }
+    }
+
+    if (placedGroup) return; // Continue to next group
+
     // Build a "proximity score" for each empty seat: closer to anchors = better
     function proximityScore(seat) {
       if (anchorPositions.length === 0) return 0;
@@ -1428,39 +1461,7 @@ function autoArrange() {
       }
     }
 
-    // Strategy 2.5: When anchors exist, skip to BFS (Strategy 3) which fills around anchors
-    if (!placedGroup && anchorPositions.length > 0) {
-      // BFS from anchors outward — fills both sides naturally
-      let bestCluster = null, bestScore = Infinity;
-      const startPoints = anchorPositions.map(a => targetPool.find(s => s.r === a.r && s.c === a.c && !usedSeats.has(s.r+','+s.c))).filter(Boolean);
-      const seedPool = startPoints.length > 0 ? startPoints : shuffle([...targetPool]).slice(0,5);
-
-      for (const start of seedPool.slice(0, 30)) {
-        if (!start) continue;
-        const cluster = [start], clusterSet = new Set([start.r+','+start.c]), queue = [start];
-        while (queue.length > 0 && cluster.length < N) {
-          const cur = queue.shift();
-          for (const [dr,dc] of shuffle([[0,1],[0,-1],[1,0],[-1,0]])) {
-            const nr=cur.r+dr, nc=cur.c+dc, k=nr+','+nc;
-            if (clusterSet.has(k)) continue;
-            if (!isAdjacent(cur.r,cur.c,nr,nc)) continue;
-            const seat = targetPool.find(s => s.r===nr && s.c===nc && !clusterSet.has(k));
-            if (seat) { clusterSet.add(k); cluster.push(seat); queue.push(seat); if (cluster.length>=N) break; }
-          }
-        }
-        if (cluster.length >= N) {
-          const rs = cluster.map(s=>s.r), cs = cluster.map(s=>s.c);
-          const s = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
-          if (s < bestScore) { bestScore = s; bestCluster = [...cluster]; }
-        }
-      }
-      if (bestCluster) {
-        for (let k = 0; k < N; k++) { const s = bestCluster[k]; result[s.r][s.c] = people[k]; usedSeats.add(s.r+','+s.c); placed.add(people[k].name); }
-        placedGroup = true;
-      }
-    }
-
-    // Strategy 2.6: Scan for rectangular blocks (only without anchors)
+    // Strategy 2.5: Scan for rectangular blocks
     if (!placedGroup && anchorPositions.length === 0) {
       let bestRect = null, bestScore = Infinity;
       const allRows = [...new Set(targetPool.map(s=>s.r))].sort((a,b)=>a-b);
