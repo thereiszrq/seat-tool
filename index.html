@@ -969,7 +969,22 @@ let touchDragClone = null;
 
 function dragNameToGroup(e, name) {
   dragNameToGroup_name = name;
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', name);
+}
+
+function allowDrop(e) {
+  e.preventDefault();
+  e.currentTarget.style.borderColor = 'var(--primary)';
+}
+function dropNameToGroup(e, gIdx) {
+  e.preventDefault();
+  e.stopPropagation();
+  e.currentTarget.style.borderColor = '';
+  if (dragNameToGroup_name) {
+    moveToGroup(dragNameToGroup_name, gIdx);
+    dragNameToGroup_name = '';
+  }
 }
 
 // Mobile touch drag
@@ -1028,7 +1043,7 @@ function renderGroupCards() {
       <option value="">不绑定区域</option>
       ${Object.keys(state.zones).map(z => `<option value="${z}" ${g.zoneBind===z?'selected':''}>${z}</option>`).join('')}
     </select>`;
-    return `<div class="group-card" data-group-idx="${i}" ondragover="event.preventDefault();event.currentTarget.style.borderColor='var(--primary)'" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})" style="transition:border-color .2s">
+    return `<div class="group-card" data-group-idx="${i}" ondragover="allowDrop(event)" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})" style="transition:border-color .2s">
       <div class="group-header">
         <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:140px" onchange="updateGroupName(${i},this.value)">
         <span style="font-size:12px;color:var(--gray-500)">${g.members.length}人</span>
@@ -1389,33 +1404,38 @@ function autoArrange() {
       }
     }
 
-    // Strategy 2.5: Scan grid for empty rectangular blocks
+    // Strategy 2.5: Scan grid for rectangular blocks
     if (!placedGroup) {
       let bestRect = null, bestScore = Infinity;
-      // Scan all possible top-left corners and rectangle sizes
       const allRows = [...new Set(targetPool.map(s=>s.r))].sort((a,b)=>a-b);
       const allCols = [...new Set(targetPool.map(s=>s.c))].sort((a,b)=>a-b);
-      for (const r0 of allRows) {
-        for (const c0 of allCols) {
-          for (let h = 2; h <= 6; h++) {
-            const w = Math.ceil(N / h);
-            if (h * w < N) continue;
-            // Check if rectangle (r0..r0+h-1, c0..c0+w-1) is all empty
-            const rect = [];
-            let valid = true;
-            for (let dr = 0; dr < h && valid; dr++) {
-              for (let dc = 0; dc < w && valid; dc++) {
-                const key = (r0+dr)+','+(c0+dc);
-                if (usedSeats.has(key)) { valid = false; break; }
-                const seat = targetPool.find(s => s.r===r0+dr && s.c===c0+dc);
-                if (!seat) { valid = false; break; }
-                rect.push(seat);
+      if (allRows.length > 0 && allCols.length > 0) {
+        const minR = Math.min(...allRows), maxR = Math.max(...allRows);
+        const minC = Math.min(...allCols), maxC = Math.max(...allCols);
+        for (let r0 = minR; r0 <= maxR; r0++) {
+          for (let c0 = minC; c0 <= maxC; c0++) {
+            // Try all rectangle sizes that fit N
+            for (let h = 1; h <= 6; h++) {
+              for (let w = 1; w <= 6; w++) {
+                if (h * w < N) continue;
+                if (h * w > N + 3) continue; // Don't waste too many seats
+                const rect = [];
+                let allEmpty = true;
+                for (let dr = 0; dr < h && allEmpty; dr++) {
+                  for (let dc = 0; dc < w && allEmpty; dc++) {
+                    const key = (r0+dr)+','+(c0+dc);
+                    if (usedSeats.has(key)) { allEmpty = false; break; }
+                    const seat = targetPool.find(s => s.r===r0+dr && s.c===c0+dc);
+                    if (!seat) { allEmpty = false; break; }
+                    rect.push(seat);
+                  }
+                }
+                if (allEmpty && rect.length >= N) {
+                  const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
+                  const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs)) + proximityScore(rect[0]);
+                  if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
+                }
               }
-            }
-            if (valid && rect.length >= N) {
-              const rs = rect.map(s=>s.r), cs = rect.map(s=>s.c);
-              const score = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
-              if (score < bestScore) { bestScore = score; bestRect = rect.slice(0,N); }
             }
           }
         }
