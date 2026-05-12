@@ -698,12 +698,15 @@ function setupGridDrag() {
   });
 }
 
-// Call setup after render
-const _origRenderGridEditor = renderGridEditor;
-renderGridEditor = function() {
-  _origRenderGridEditor();
-  setTimeout(setupGridDrag, 0);
-};
+// Bind drag after first render by patching renderGridEditor
+(function() {
+  const orig = renderGridEditor;
+  let patched = false;
+  renderGridEditor = function() {
+    orig.apply(this, arguments);
+    if (!patched) { patched = true; setTimeout(setupGridDrag, 10); }
+  };
+})();
 
 function toggleSeat(r, c) {
   const seat = state.layout.seats.find(s => s.r === r && s.c === c);
