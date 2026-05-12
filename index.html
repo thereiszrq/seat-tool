@@ -557,175 +557,36 @@ function toggleSelectMode() {
   }
 }
 
-// Pointer + touch event based drag for circle-select
-let ptrDown = false, ptrStart = null, ptrEnd = null, ptrMoved = false;
-let ptrIsTouch = false;
-let ptrHandledBySelect = false;
+// ==================== GRID INTERACTION (simplified) ====================
+let dragInfo = null; // {r1,c1,r2,c2, moved} or null
 
-function getCellFromPoint(x, y) {
+function getCellAt(e) {
+  let x, y;
+  if (e.touches) { x = e.touches[0].clientX; y = e.touches[0].clientY; }
+  else { x = e.clientX; y = e.clientY; }
   const el = document.elementFromPoint(x, y);
   if (!el) return null;
   const td = el.closest('td[data-r][data-c]');
   return td ? { r: parseInt(td.dataset.r), c: parseInt(td.dataset.c) } : null;
 }
 
-function handlePtrDown(r, c, e) {
-  ptrIsTouch = (e.pointerType === 'touch');
-  if (ptrIsTouch && !selectMode) return;
-  e.preventDefault();
-  const grid = document.getElementById('gridEditor');
-  if (grid) {
-    try { grid.setPointerCapture(e.pointerId); } catch(ex) {}
-  }
-  ptrDown = true; ptrMoved = false;
-  ptrStart = {r, c}; ptrEnd = {r, c};
-  ptrHandledBySelect = false;
-}
-
-function highlightArea() {
-  const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
-  const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
-  document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
-    const rr = parseInt(td.dataset.r), cc = parseInt(td.dataset.c);
-    td.style.background = (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) ? '#dbeafe' : '';
-  });
-}
-
-function handlePtrMove(e) {
-  if (!ptrDown) return;
-  let x, y;
-  if (e.touches && e.touches.length > 0) { x = e.touches[0].clientX; y = e.touches[0].clientY; }
-  else { x = e.clientX; y = e.clientY; }
-  const cell = getCellFromPoint(x, y);
-  if (!cell) return;
-  if (cell.r === ptrEnd.r && cell.c === ptrEnd.c) return;
-  ptrMoved = true;
-  ptrEnd = cell;
-  highlightArea();
-}
-
-function handlePtrUp(e) {
-  if (!ptrDown) return;
-  ptrDown = false;
-  const grid = document.getElementById('gridEditor');
-  if (grid) {
-    try { if (grid.hasPointerCapture(e.pointerId)) grid.releasePointerCapture(e.pointerId); } catch(ex) {}
-  }
-
-  if (!ptrMoved) {
-    if (ptrIsTouch && selectMode && ptrStart) {
-      // Range-select: if no previous cell, set as start; else select range
-      if (multiSelected.size === 0 || ptrStart.r === ptrEnd.r && ptrStart.c === ptrEnd.c) {
-        const key = ptrStart.r + ',' + ptrStart.c;
-        if (multiSelected.has(key)) multiSelected.delete(key);
-        else multiSelected.add(key);
-      }
-      renderGridEditor();
-      ptrHandledBySelect = true;
-    }
-    ptrStart = ptrEnd = null; ptrIsTouch = false;
+function onGridClick(r, c, e) {
+  // Handle drag end first
+  if (dragInfo && dragInfo.moved) {
+    applyDragSelection();
     return;
   }
+  dragInfo = null;
 
-  // Drag ended — toggle all cells in area
-  const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
-  const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
-  const newSel = new Set([...multiSelected]);
-  for (let rr = r1; rr <= r2; rr++)
-    for (let cc = c1; cc <= c2; cc++) {
-      const key = rr + ',' + cc;
-      if (multiSelected.has(key)) newSel.delete(key);
-      else newSel.add(key);
-    }
-  multiSelected = newSel;
-  renderGridEditor();
-  if (r1 !== r2 || c1 !== c2) document.getElementById('zoneName').value = '';
-  ptrStart = ptrEnd = null; ptrIsTouch = false;
-  ptrHandledBySelect = selectMode;
-}
+  // Select mode: toggle cell
+  if (selectMode) {
+    const key = r + ',' + c;
+    if (multiSelected.has(key)) multiSelected.delete(key);
+    else multiSelected.add(key);
+    renderGridEditor(); return;
+  }
 
-// Also add direct touch events as backup
-function setupTouchGrid() {
-  const grid = document.getElementById('gridEditor');
-  if (!grid) return;
-
-  grid.addEventListener('touchstart', function(e) {
-    if (!selectMode) return;
-    const td = e.target.closest('td[data-r][data-c]');
-    if (!td) return;
-    e.preventDefault();
-    const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
-    // Only handle if pointer events didn't already
-    if (ptrDown) return;
-    ptrDown = true; ptrIsTouch = true; ptrMoved = false;
-    ptrStart = {r,c}; ptrEnd = {r,c};
-    ptrHandledBySelect = false;
-  }, {passive: false});
-
-  grid.addEventListener('touchmove', function(e) {
-    if (!ptrDown || !ptrIsTouch) return;
-    e.preventDefault();
-    const cell = getCellFromPoint(e.touches[0].clientX, e.touches[0].clientY);
-    if (!cell) return;
-    if (cell.r === ptrEnd.r && cell.c === ptrEnd.c) return;
-    ptrMoved = true;
-    ptrEnd = cell;
-    highlightArea();
-  }, {passive: false});
-
-  grid.addEventListener('touchend', function(e) {
-    if (!ptrDown || !ptrIsTouch) return;
-    ptrDown = false;
-    if (!ptrMoved) {
-      if (ptrStart) {
-        const key = ptrStart.r + ',' + ptrStart.c;
-        if (multiSelected.has(key)) multiSelected.delete(key);
-        else multiSelected.add(key);
-        renderGridEditor();
-        ptrHandledBySelect = true;
-      }
-    } else {
-      const r1 = Math.min(ptrStart.r, ptrEnd.r), r2 = Math.max(ptrStart.r, ptrEnd.r);
-      const c1 = Math.min(ptrStart.c, ptrEnd.c), c2 = Math.max(ptrStart.c, ptrEnd.c);
-      const newSel = new Set([...multiSelected]);
-      for (let rr = r1; rr <= r2; rr++)
-        for (let cc = c1; cc <= c2; cc++) {
-          const key = rr + ',' + cc;
-          if (multiSelected.has(key)) newSel.delete(key);
-          else newSel.add(key);
-        }
-      multiSelected = newSel;
-      renderGridEditor();
-      if (r1 !== r2 || c1 !== c2) document.getElementById('zoneName').value = '';
-    }
-    ptrStart = ptrEnd = null; ptrIsTouch = false;
-    ptrHandledBySelect = selectMode;
-  }, {passive: false});
-}
-
-// Attach pointer events to grid container
-function bindGridEvents() {
-  const grid = document.getElementById('gridEditor');
-  if (!grid) return;
-  grid.onpointerdown = function(e) {
-    const td = e.target.closest('td[data-r][data-c]');
-    if (!td) return;
-    const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
-    handlePtrDown(r, c, e);
-  };
-  grid.onpointermove = handlePtrMove;
-  grid.onpointerup = handlePtrUp;
-  grid.onpointerleave = handlePtrUp;
-  // Also set up direct touch handlers as backup
-  setupTouchGrid();
-}
-
-// Click handler
-function onGridClick(r, c, e) {
-  if (ptrHandledBySelect) { ptrHandledBySelect = false; return; }
-  if (selectMode) return;
-  if (ptrMoved) { ptrMoved = false; return; }
-
+  // Desktop modifiers
   if (e.ctrlKey || e.metaKey) {
     const key = r + ',' + c;
     if (multiSelected.has(key)) multiSelected.delete(key);
@@ -741,14 +602,107 @@ function onGridClick(r, c, e) {
         multiSelected.add(rr + ',' + cc);
     renderGridEditor(); return;
   }
+  // Plain click: toggle seat
   toggleSeat(r, c);
 }
 
-// Call bindGridEvents after each render
-const origRenderGridEditor = renderGridEditor;
+function applyDragSelection() {
+  if (!dragInfo) return;
+  const r1 = Math.min(dragInfo.r1, dragInfo.r2), r2 = Math.max(dragInfo.r1, dragInfo.r2);
+  const c1 = Math.min(dragInfo.c1, dragInfo.c2), c2 = Math.max(dragInfo.c1, dragInfo.c2);
+  const newSel = dragInfo.additive ? new Set([...multiSelected]) : new Set();
+  for (let rr = r1; rr <= r2; rr++)
+    for (let cc = c1; cc <= c2; cc++) {
+      const key = rr + ',' + cc;
+      if (dragInfo.additive && multiSelected.has(key)) newSel.delete(key);
+      else newSel.add(key);
+    }
+  multiSelected = newSel;
+  renderGridEditor();
+  if (r1 !== r2 || c1 !== c2) document.getElementById('zoneName').value = '';
+  dragInfo = null;
+}
+
+function setupGridDrag() {
+  const grid = document.getElementById('gridEditor');
+  if (!grid || grid._dragSetup) return;
+  grid._dragSetup = true;
+
+  // === DESKTOP: mouse events ===
+  grid.addEventListener('mousedown', function(e) {
+    const td = e.target.closest('td[data-r][data-c]');
+    if (!td) return;
+    const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
+    dragInfo = { r1: r, c1: c, r2: r, c2: c, moved: false, additive: e.ctrlKey||e.metaKey };
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragInfo) return;
+    const cell = getCellAt(e);
+    if (!cell) return;
+    if (cell.r === dragInfo.r2 && cell.c === dragInfo.c2) return;
+    dragInfo.moved = true;
+    dragInfo.r2 = cell.r; dragInfo.c2 = cell.c;
+    // Highlight
+    const r1 = Math.min(dragInfo.r1, dragInfo.r2), r2 = Math.max(dragInfo.r1, dragInfo.r2);
+    const c1 = Math.min(dragInfo.c1, dragInfo.c2), c2 = Math.max(dragInfo.c1, dragInfo.c2);
+    document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
+      const rr = parseInt(td.dataset.r), cc = parseInt(td.dataset.c);
+      td.style.background = (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) ? '#dbeafe' : '';
+    });
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (dragInfo && dragInfo.moved) {
+      applyDragSelection();
+    }
+  });
+
+  // === MOBILE: touch events (only in select mode) ===
+  grid.addEventListener('touchstart', function(e) {
+    if (!selectMode) return;
+    const td = e.target.closest('td[data-r][data-c]');
+    if (!td) return;
+    e.preventDefault();
+    const r = parseInt(td.dataset.r), c = parseInt(td.dataset.c);
+    dragInfo = { r1: r, c1: c, r2: r, c2: c, moved: false, additive: false };
+  }, { passive: false });
+
+  grid.addEventListener('touchmove', function(e) {
+    if (!dragInfo) return;
+    e.preventDefault();
+    const cell = getCellAt(e);
+    if (!cell) return;
+    if (cell.r === dragInfo.r2 && cell.c === dragInfo.c2) return;
+    dragInfo.moved = true;
+    dragInfo.r2 = cell.r; dragInfo.c2 = cell.c;
+    const r1 = Math.min(dragInfo.r1, dragInfo.r2), r2 = Math.max(dragInfo.r1, dragInfo.r2);
+    const c1 = Math.min(dragInfo.c1, dragInfo.c2), c2 = Math.max(dragInfo.c1, dragInfo.c2);
+    document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => {
+      const rr = parseInt(td.dataset.r), cc = parseInt(td.dataset.c);
+      td.style.background = (rr >= r1 && rr <= r2 && cc >= c1 && cc <= c2) ? '#dbeafe' : '';
+    });
+  }, { passive: false });
+
+  grid.addEventListener('touchend', function(e) {
+    if (!dragInfo) return;
+    if (dragInfo.moved) { applyDragSelection(); }
+    else {
+      // Tap in select mode
+      const key = dragInfo.r1 + ',' + dragInfo.c1;
+      if (multiSelected.has(key)) multiSelected.delete(key);
+      else multiSelected.add(key);
+      renderGridEditor();
+    }
+    dragInfo = null;
+  });
+}
+
+// Call setup after render
+const _origRenderGridEditor = renderGridEditor;
 renderGridEditor = function() {
-  origRenderGridEditor();
-  bindGridEvents();
+  _origRenderGridEditor();
+  setTimeout(setupGridDrag, 0);
 };
 
 function toggleSeat(r, c) {
@@ -1032,6 +986,8 @@ function dragNameToGroup(e, name) {
 
 // Mobile touch drag
 function touchDragNameStart(e, name) {
+  // Don't intercept clicks on select/button inside the tag
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
   if (e.pointerType !== 'touch') return;
   e.preventDefault();
   dragNameToGroup_name = name;
