@@ -646,6 +646,8 @@ function setupGridDrag() {
       e.stopPropagation();
       applyDragSelection();
     }
+    // Clear highlight on every mouseup
+    document.querySelectorAll('#gridEditor td[data-r][data-c]').forEach(td => { td.style.background = ''; });
   });
 
   // Mobile touch drag
@@ -1426,8 +1428,40 @@ function autoArrange() {
       }
     }
 
-    // Strategy 2.5: Scan grid for rectangular blocks
-    if (!placedGroup) {
+    // Strategy 2.5: When anchors exist, skip to BFS (Strategy 3) which fills around anchors
+    if (!placedGroup && anchorPositions.length > 0) {
+      // BFS from anchors outward — fills both sides naturally
+      let bestCluster = null, bestScore = Infinity;
+      const startPoints = anchorPositions.map(a => targetPool.find(s => s.r === a.r && s.c === a.c && !usedSeats.has(s.r+','+s.c))).filter(Boolean);
+      const seedPool = startPoints.length > 0 ? startPoints : shuffle([...targetPool]).slice(0,5);
+
+      for (const start of seedPool.slice(0, 30)) {
+        if (!start) continue;
+        const cluster = [start], clusterSet = new Set([start.r+','+start.c]), queue = [start];
+        while (queue.length > 0 && cluster.length < N) {
+          const cur = queue.shift();
+          for (const [dr,dc] of shuffle([[0,1],[0,-1],[1,0],[-1,0]])) {
+            const nr=cur.r+dr, nc=cur.c+dc, k=nr+','+nc;
+            if (clusterSet.has(k)) continue;
+            if (!isAdjacent(cur.r,cur.c,nr,nc)) continue;
+            const seat = targetPool.find(s => s.r===nr && s.c===nc && !clusterSet.has(k));
+            if (seat) { clusterSet.add(k); cluster.push(seat); queue.push(seat); if (cluster.length>=N) break; }
+          }
+        }
+        if (cluster.length >= N) {
+          const rs = cluster.map(s=>s.r), cs = cluster.map(s=>s.c);
+          const s = (Math.max(...rs)-Math.min(...rs))*1000 + (Math.max(...cs)-Math.min(...cs));
+          if (s < bestScore) { bestScore = s; bestCluster = [...cluster]; }
+        }
+      }
+      if (bestCluster) {
+        for (let k = 0; k < N; k++) { const s = bestCluster[k]; result[s.r][s.c] = people[k]; usedSeats.add(s.r+','+s.c); placed.add(people[k].name); }
+        placedGroup = true;
+      }
+    }
+
+    // Strategy 2.6: Scan for rectangular blocks (only without anchors)
+    if (!placedGroup && anchorPositions.length === 0) {
       let bestRect = null, bestScore = Infinity;
       const allRows = [...new Set(targetPool.map(s=>s.r))].sort((a,b)=>a-b);
       const allCols = [...new Set(targetPool.map(s=>s.c))].sort((a,b)=>a-b);
