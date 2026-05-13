@@ -288,6 +288,7 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   <button class="btn btn-outline btn-sm" onclick="addGroup(1)" style="margin-top:8px">+ 添加分组</button>
   <input type="number" id="batchGroupCount" value="4" min="1" max="20" style="width:50px;padding:4px 6px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;margin-left:4px">
   <button class="btn btn-outline btn-sm" onclick="addGroup(parseInt(document.getElementById('batchGroupCount').value)||4)" style="margin-top:8px">批量添加</button>
+  <button class="btn btn-outline btn-sm btn-danger" onclick="batchDeleteGroups()" style="margin-top:8px;margin-left:4px">删除空组</button>
 
   <div class="section-title" style="margin-top:24px">未分配人员</div>
   <div class="member-pool" id="unassignedPool"></div>
@@ -969,6 +970,15 @@ function addGroup(count) {
 function removeGroup(idx) {
   if (state.groups.length <= 1) { toast('至少保留一个分组', 'error'); return; }
   state.groups.splice(idx, 1);
+  renderGroupCards(); saveState();
+}
+function batchDeleteGroups() {
+  const before = state.groups.length;
+  state.groups = state.groups.filter(g => g.members.length > 0);
+  if (state.groups.length === 0) state.groups.push({ name: '第一组', members: [], zoneBind: '' });
+  const deleted = before - state.groups.length;
+  if (deleted === 0) toast('没有空组可删除');
+  else toast('已删除 ' + deleted + ' 个空组');
   renderGroupCards(); saveState();
 }
 
