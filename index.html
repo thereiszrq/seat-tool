@@ -1117,7 +1117,7 @@ function renderGroupCards() {
     </select>`;
     return `<div class="group-card" data-group-idx="${i}" ondragover="allowDrop(event)" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})" style="transition:border-color .2s">
       <div class="group-header">
-	        <input type="checkbox" style="width:16px;height:16px;cursor:pointer" ${groupSelectMode?"":"display:none"} ${(state._groupSelected||[]).includes(i)?"checked":""} onchange="toggleGroupSelect(${i},this.checked)">
+	        ${groupSelectMode ? `<div style="width:100%;margin-bottom:4px"><label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" style="width:16px;height:16px" ${(state._groupSelected||[]).includes(i)?"checked":""} onchange="toggleGroupSelect(${i},this.checked)"> 选中此组</label></div>` : ""}
         <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:120px" onchange="updateGroupName(${i},this.value)">
         <span style="font-size:12px;color:var(--gray-500)">${g.members.length}人</span>
         <span style="font-size:12px;color:var(--gray-500)">绑定：</span>${zoneSel}
