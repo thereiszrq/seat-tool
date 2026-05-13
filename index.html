@@ -289,6 +289,8 @@ textarea.textarea:focus{outline:none;border-color:var(--primary)}
   <input type="number" id="batchGroupCount" value="4" min="1" max="20" style="width:50px;padding:4px 6px;border:1px solid var(--gray-300);border-radius:4px;font-size:12px;margin-left:4px">
   <button class="btn btn-outline btn-sm" onclick="addGroup(parseInt(document.getElementById('batchGroupCount').value)||4)" style="margin-top:8px">批量添加</button>
   <button class="btn btn-outline btn-sm btn-danger" onclick="batchDeleteGroups()" style="margin-top:8px;margin-left:4px">删除空组</button>
+	  <button class="btn btn-outline btn-sm" onclick="toggleSelectAllGroups()" style="margin-top:8px;margin-left:4px" id="selectAllBtn">全选</button>
+	  <button class="btn btn-outline btn-sm btn-danger" onclick="deleteSelectedGroups()" style="margin-top:8px;margin-left:4px">删除选中</button>
 
   <div class="section-title" style="margin-top:24px">未分配人员</div>
   <div class="member-pool" id="unassignedPool"></div>
@@ -972,6 +974,31 @@ function removeGroup(idx) {
   state.groups.splice(idx, 1);
   renderGroupCards(); saveState();
 }
+function toggleGroupSelect(idx, checked) {
+  if (!state._groupSelected) state._groupSelected = [];
+  if (checked) { if (!state._groupSelected.includes(idx)) state._groupSelected.push(idx); }
+  else state._groupSelected = state._groupSelected.filter(i => i !== idx);
+}
+function toggleSelectAllGroups() {
+  if (!state._groupSelected) state._groupSelected = [];
+  if (state._groupSelected.length === state.groups.length) {
+    state._groupSelected = [];
+  } else {
+    state._groupSelected = state.groups.map((_, i) => i);
+  }
+  renderGroupCards(); saveState();
+}
+function deleteSelectedGroups() {
+  if (!state._groupSelected || state._groupSelected.length === 0) { toast('未选中任何组', 'error'); return; }
+  if (state.groups.length - state._groupSelected.length < 1) { toast('至少保留一个分组', 'error'); return; }
+  const names = state._groupSelected.map(i => state.groups[i].name).join('、');
+  if (!confirm('确定删除选中组：' + names + '？')) return;
+  const sorted = [...state._groupSelected].sort((a,b) => b - a);
+  sorted.forEach(i => state.groups.splice(i, 1));
+  state._groupSelected = [];
+  renderGroupCards(); saveState();
+  toast('已删除选中的分组');
+}
 function batchDeleteGroups() {
   const before = state.groups.length;
   state.groups = state.groups.filter(g => g.members.length > 0);
@@ -1069,7 +1096,7 @@ function renderGroupCards() {
     </select>`;
     return `<div class="group-card" data-group-idx="${i}" ondragover="allowDrop(event)" ondragleave="event.currentTarget.style.borderColor=''" ondrop="dropNameToGroup(event,${i})" style="transition:border-color .2s">
       <div class="group-header">
-        <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:140px" onchange="updateGroupName(${i},this.value)">
+        <input value="${g.name}" style="border:1px solid var(--gray-300);border-radius:4px;padding:4px 8px;font-size:14px;font-weight:600;width:120px" onchange="updateGroupName(${i},this.value)">
         <span style="font-size:12px;color:var(--gray-500)">${g.members.length}人</span>
         <span style="font-size:12px;color:var(--gray-500)">绑定：</span>${zoneSel}
         <button class="btn btn-xs btn-outline" onclick="removeGroup(${i})" style="margin-left:auto">删除组</button>
